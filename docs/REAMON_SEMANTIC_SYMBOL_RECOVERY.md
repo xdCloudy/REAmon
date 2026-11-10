@@ -53,7 +53,8 @@ semantic naming accuracy, cross-provider symbol equivalence, or safe autonomous 
 
 The safe-renames route now builds a verified, same-directory Go package snapshot from
 accepted sibling-source receipts and asks the `go/types` helper for rename bindings and
-an inventory. Each package declaration is listed with a stable snapshot-bound ID, name,
+an inventory. Each package declaration and file-scope import alias is listed with a
+stable snapshot-bound ID, name,
 kind, source path and byte offset, resolved reference count, and an explicit
 eligible/excluded/unsupported classification with its reason. Name quality remains
 `unassessed`. Exact aggregate counts cover every inventory row; detailed rows are capped
@@ -67,13 +68,15 @@ shows a bounded row preview alongside the counts and snapshot-scope disclosure. 
 Go regressions check exact classifications and aggregate counts, including a 5,001-row
 fixture proving explicit detail truncation with exact totals. The inventory now includes
 function and function-literal parameters, receivers, results, local variables,
-constants, types, type parameters, and local functions. Referenced local bindings are
-eligible inventory entries; unreferenced bindings are explicitly excluded. Local
-struct fields, interface methods, labels, and other unsupported object kinds retain
-explicit unsupported reasons. The visualizer labels local entries as inventory-only;
-the project rename flow still targets package declarations. This does not establish
-whole-project file completeness, assess names as meaningful or unnamed, or measure
-naming quality.
+constants, types, type parameters, local functions, and implicit type-switch case
+variables. File-scope import aliases are inventoried with resolved reference counts;
+dot imports are marked unsupported, and blank imports are omitted because they declare
+no binding. Referenced locals and imports are eligible inventory entries but remain
+inventory-only; unreferenced locals and imports are explicitly excluded. Local struct
+fields, interface methods, labels, and other unsupported object kinds retain explicit
+unsupported reasons. The project rename flow still targets package declarations. This
+does not establish whole-project file completeness, assess names as meaningful or
+unnamed, or measure naming quality.
 
 ## P1 milestone and acceptance gates
 
@@ -98,8 +101,8 @@ of another.
   and false-positive rate.
 
 The scoped Go inventory now provides a partial denominator foundation for package
-declarations and explicit and implicit function-scoped bindings, including the
-case-specific variables introduced by type-switch clauses. It does not satisfy the
+declarations, file-scope import aliases, and explicit and implicit function-scoped
+bindings, including case-specific type-switch variables. It does not satisfy the
 project-wide discovery or semantic quality acceptance gates above.
 
 ### ASSR-2: Cross-file and cross-function propagation

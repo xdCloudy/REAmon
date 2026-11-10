@@ -5,10 +5,10 @@
   "activitySummary": {
     "date": "2026-11-10",
     "completed": [
-      "The Go project_bindings inventory now includes implicit, case-scoped variables from type-switch clauses in addition to explicit package and function locals. Each case binding uses its case-clause source anchor for a distinct snapshot-bound ID, and resolved per-case references determine eligible or excluded classification; name quality remains unassessed and local rows remain inventory-only.",
-      "Docker Go package tests pass, including a regression that first reproduced the missing bindings and now verifies all three case scopes, distinct IDs, and per-case references. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice."
+      "The Go project_bindings inventory now includes file-scope import aliases in addition to package declarations and function locals. Explicit and inferred aliases carry source-bound entries and exact resolved-reference counts; dot imports are explicitly unsupported and blank imports are omitted because they declare no binding. File and local entries remain inventory-only, while rename proposals remain package-scoped.",
+      "The Docker Go package suite passes. Its import regression verifies explicit and inferred aliases, unsupported dot imports, and omission of a blank import. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice."
     ],
-    "scoreDecision": "Implicit Go type-switch bindings close one previously missing statically enumerable local-binding category and add one partial point to Agentic project-wide semantic renaming (19% to 20%). At 8% workstream weight, the weighted estimate increases from 32.67% to 32.75% (+0.08 points). This is narrow Go inventory coverage; complete project discovery, local rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.",
+    "scoreDecision": "Adding file-scope import bindings extends the Go inventory across another distinct lexical scope and adds one partial point to Agentic project-wide semantic renaming (20% to 21%). At 8% workstream weight, the weighted estimate increases from 32.75% to 32.83% (+0.08 points). Import aliases and locals are inventoried only; complete project discovery, local/file-scope rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.",
     "nextGate": "Extend the inventory to declared complete project scopes and additional supported languages/symbol kinds; define evidence-backed meaningful/unnamed and ambiguity assessments, then measure coverage and false-positive rates on held-out fixtures."
   },
   "scopeNote": "2026-11-05 accepted additional independent integrated-benchmark (3%) and authorized external app-behavior (2%) acceptance gates; now 20 workstreams totaling 100 points, both new workstreams were zero-complete at that scope checkpoint. Five existing related weights decrease by 1 point each, with unchanged prior implementation ratings. The estimate was 26.41% at introduction; after the verified v1 paired benchmark slice, it was 26.71%; after the verified v2 source-match pair, it is 26.86%. The scope-expansion change from 28.99% to 26.41% was not a functional regression. The earlier CA-1/CA-2 expansion from 31.95% to 28.99% remains historical, not a functional regression. No upstream code or unverified benchmark receives completion credit. Historical CA-1/CA-2 baseline note (retained): Recalibrated on 2026-11-05 for the accepted Craft Anything-inspired cross-surface tool contract and evidence delivery scope (CA-1/CA-2). Eighteen workstreams total 100 weight points. This added a distinct 5%-weight zero-complete workstream while reducing five adjacent existing weights by one point each; it did not change any previous implementation completion estimate, and therefore measured scope growth rather than a regression in shipped functionality. CA-0 was a prerequisite; CA-3/CA-4, CA-5 and then-optional CA-6 were not double-counted as new completion. The model remains an evidence-based estimate, not a release certification.",
@@ -65,10 +65,10 @@
     {
       "name": "Agentic project-wide semantic renaming",
       "weight": 8,
-      "completion": 20,
-      "summary": "Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. Package declarations and explicit function-scoped locals plus implicit type-switch case variables have stable snapshot IDs, kinds, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory and the visualizer shows a bounded scope-aware preview. Complete project discovery, meaningful/unnamed assessment, and semantic naming quality remain open.",
+      "completion": 21,
+      "summary": "Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. It covers package declarations, file-scope import aliases, and explicit and implicit function-scoped bindings with stable snapshot IDs, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Dot imports are unsupported and blank imports are omitted. File/local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory, draft history reloads it compatibly, and the visualizer shows scope-aware rows. Complete project discovery and semantic naming quality remain open.",
       "remaining": "Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.",
-      "basis": "Credit existing project-wide symbol/context foundations and selected proposal workflows, plus three partial Go inventory increments: package declarations, explicit function-scoped locals, and implicit type-switch case variables are classified without judging name quality, with exact totals retained under detail truncation. Docker Go regressions verify local classifications, distinct type-switch case identities, and mixed 5,001-row truncation; focused route/history/UI regressions verify source-bound validation, persistence, reload, and scope disclosure. This does not establish a complete project inventory, local rename proposals, meaningful-name classification, autonomous iterative naming, benchmark quality, or scale acceptance."
+      "basis": "Credit existing project-wide symbol/context foundations and selected proposal workflows, plus four partial Go inventory increments: package declarations, explicit function locals, implicit type-switch case variables, and file-scope imports are classified without judging name quality, with exact totals retained under detail truncation. Docker Go regressions verify local identities, imported alias references, dot-import unsupported status, blank-import omission, and mixed 5,001-row truncation. Focused route/history/UI regressions verify source-bound validation, persistence, backward-compatible reload, and scope disclosure. This does not establish a complete project inventory, local/file rename proposals, meaningful-name classification, autonomous iterative naming, benchmark quality, or scale acceptance."
     },
     {
       "name": "Cross-file semantic rename propagation",
@@ -177,15 +177,15 @@
   ],
   "recentComparison": {
     "date": "2026-11-10",
-    "baselineEstimate": 32.67,
-    "candidateEstimate": 32.75,
-    "evidence": "The same-directory Go snapshot now inventories implicit type-switch case variables through go/types implicit-object metadata. The regression reproduced their omission before the change and now verifies all three case-specific rows, unique IDs, and per-case reference counts. The safe-renames validator accepts the new local kind. Docker Go package tests pass; focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run. This adds one partial point to the 8%-weight semantic-renaming workstream (+0.08 overall); complete project discovery and naming-quality benchmarks remain open."
+    "baselineEstimate": 32.75,
+    "candidateEstimate": 32.83,
+    "evidence": "The same-directory Go inventory now includes explicit and inferred file-scope import aliases with exact resolved-reference counts. Docker regression evidence verifies both aliases, marks a dot import unsupported, and omits a blank import with no binding; the full Go helper package passes. The safe-renames route accepts and persists file-scope entries, draft history reloads them while normalizing older inventories without file counts, and the visualizer labels file scope. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run. This adds one partial point to the 8%-weight semantic-renaming workstream (+0.08 overall); complete project discovery and naming-quality benchmarks remain open."
   },
   "activeWork": {
     "date": "2026-11-10",
-    "basedOnCommit": "d30b6a97",
+    "basedOnCommit": "8756c618",
     "workstream": "Agentic project-wide semantic renaming",
-    "status": "Go project inventory covers package declarations, explicit function-scoped locals, and implicit type-switch case bindings for a verified same-directory snapshot; local rows remain inventory-only. Whole-project completeness, local rename proposals, and naming-quality acceptance remain open.",
+    "status": "Go project inventory covers package declarations, file-scope import aliases, explicit function locals, and implicit type-switch case bindings for a verified same-directory snapshot; file/local rows remain inventory-only. Whole-project completeness and naming-quality acceptance remain open.",
     "verified": [
       [
         "The adapter rejects duplicate prototype IDs, duplicate/multiple parentage, cycles, out-of-range child IDs, and incomplete child references when metadata claims completeness.",
@@ -219,6 +219,10 @@
       [
         "The Docker Go regression first reproduced omission of Go type-switch implicit case bindings, then passed with one distinct snapshot-bound row per case clause and exact resolved reference counts.",
         "The full Go refactoring package suite passes. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run."
+      ],
+      [
+        "The Go package inventory returns and classifies explicit and inferred file-scope import aliases with exact reference counts, marks dot imports unsupported, and omits blank imports without bindings.",
+        "The full Docker Go refactoring package suite passes; focused safe-renames, draft-history, and visualizer tests pass 47/47, and Docker type-check plus targeted ESLint pass. Database integration and a fresh full webapp suite were not run."
       ]
     ],
     "notVerified": [

@@ -1,15 +1,15 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `8756c61` · Weighted estimate: **32.75%**
+Assessment date: 2026-11-10 · Source: pushed commit `8756c61` · Weighted estimate: **32.83%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
 ## Recent activity (2026-11-10)
 
-- The Go project_bindings inventory now includes implicit, case-scoped variables from type-switch clauses in addition to explicit package and function locals. Each case binding uses its case-clause source anchor for a distinct snapshot-bound ID, and resolved per-case references determine eligible or excluded classification; name quality remains unassessed and local rows remain inventory-only.
-- Docker Go package tests pass, including a regression that first reproduced the missing bindings and now verifies all three case scopes, distinct IDs, and per-case references. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice.
+- The Go project_bindings inventory now includes file-scope import aliases in addition to package declarations and function locals. Explicit and inferred aliases carry source-bound entries and exact resolved-reference counts; dot imports are explicitly unsupported and blank imports are omitted because they declare no binding. File and local entries remain inventory-only, while rename proposals remain package-scoped.
+- The Docker Go package suite passes. Its import regression verifies explicit and inferred aliases, unsupported dot imports, and omission of a blank import. Focused safe-renames, draft-history, and visualizer tests pass 47/47; Docker TypeScript type-check and targeted ESLint pass. Database integration and a fresh full webapp suite were not run for this slice.
 
-**Score decision:** Implicit Go type-switch bindings close one previously missing statically enumerable local-binding category and add one partial point to Agentic project-wide semantic renaming (19% to 20%). At 8% workstream weight, the weighted estimate increases from 32.67% to 32.75% (+0.08 points). This is narrow Go inventory coverage; complete project discovery, local rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.
+**Score decision:** Adding file-scope import bindings extends the Go inventory across another distinct lexical scope and adds one partial point to Agentic project-wide semantic renaming (20% to 21%). At 8% workstream weight, the weighted estimate increases from 32.75% to 32.83% (+0.08 points). Import aliases and locals are inventoried only; complete project discovery, local/file-scope rename proposals, meaningful/unnamed assessment, and naming-quality benchmarks remain open.
 
 **Next measurable gate:** Extend the inventory to declared complete project scopes and additional supported languages/symbol kinds; define evidence-backed meaningful/unnamed and ambiguity assessments, then measure coverage and false-positive rates on held-out fixtures.
 
@@ -21,7 +21,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 | Maintainable editing, review, and export | 4% | 60% | 2.40 pts |
 | Fixture-backed validation and fidelity evidence | 2% | 16% | 0.32 pts |
 | Security, reliability, and production operations | 10% | 98% | 9.80 pts |
-| Agentic project-wide semantic renaming | 8% | 20% | 1.60 pts |
+| Agentic project-wide semantic renaming | 8% | 21% | 1.68 pts |
 | Cross-file semantic rename propagation | 7% | 13% | 0.91 pts |
 | Safe autonomous rename acceptance | 5% | 0% | 0.00 pts |
 | Agentic semantic type and data-structure recovery | 5% | 12% | 0.60 pts |
@@ -76,7 +76,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 
 ### Agentic project-wide semantic renaming
 
-**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. Package declarations and explicit function-scoped locals plus implicit type-switch case variables have stable snapshot IDs, kinds, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory and the visualizer shows a bounded scope-aware preview. Complete project discovery, meaningful/unnamed assessment, and semantic naming quality remain open.
+**Current evidence:** Partial foundations include a verified, source-hash-bound inventory for same-directory Go package snapshots. It covers package declarations, file-scope import aliases, and explicit and implicit function-scoped bindings with stable snapshot IDs, source locations, resolved reference counts, and eligible/excluded/unsupported reasons; name assessment is explicitly unassessed. Dot imports are unsupported and blank imports are omitted. File/local entries are inventory-only and are not rename candidates. Exact aggregate totals include all entries while detail is capped at 5,000. The route persists the inventory, draft history reloads it compatibly, and the visualizer shows scope-aware rows. Complete project discovery and semantic naming quality remain open.
 
 **Remaining:** Extend inventories across declared complete project scopes and supported languages/symbol kinds; classify eligible, meaningful, unnamed, ambiguous, excluded, unsupported, and truncated populations; add evidence-linked proposals, iterative refinement without identity drift, confidence/provenance, and held-out measurements of semantic usefulness, coverage, consistency, calibration, false positives, and scale. Do not require exact original names erased by compilation.
 
