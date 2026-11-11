@@ -1749,7 +1749,7 @@ func TestProjectModuleExportedMethodRenameRejectsUnselectedPlatformVariant(t *te
 	}
 }
 
-func TestProjectModuleExportedMethodRenameRejectsInactiveTargetReference(t *testing.T) {
+func TestProjectModuleExportedMethodRenameCoordinatesInactiveTargetReferences(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
 	files := []projectFile{
 		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
@@ -1778,8 +1778,27 @@ func TestProjectModuleExportedMethodRenameRejectsInactiveTargetReference(t *test
 	request.ExpectedHash = bindings["source_sha256"].(string)
 	request.SourceSetHash = bindings["source_set_sha256"].(string)
 	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
-	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "inactive build-specific reference") || !strings.Contains(err.Error(), "cmd/use_windows.go") {
-		t.Fatalf("inactive method reference error = %v; want refusal naming the Windows consumer", err)
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename with type-checked inactive Windows reference: %v", err)
+	}
+	changedFiles, ok := result["files"].([]map[string]any)
+	if !ok {
+		t.Fatalf("rename result files = %#v; want an edit manifest", result["files"])
+	}
+	changedSources := make(map[string]string, len(changedFiles))
+	for _, file := range changedFiles {
+		changedSources[file["relative_path"].(string)] = file["source_code"].(string)
+	}
+	if len(changedSources) != 3 || !strings.Contains(changedSources["cmd/use_windows.go"], "Worker{}.Serve()") {
+		t.Fatalf("coordinated method rename outputs = %#v; want exact edits to the Windows-only call", changedSources)
+	}
+	if _, changed := changedSources["cmd/unrelated_windows.go"]; changed {
+		t.Fatalf("rename changed an unrelated Other.Do method: %#v", changedSources["cmd/unrelated_windows.go"])
+	}
+	renamed, ok := result["renamed_bindings"].([]map[string]any)
+	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 3 {
+		t.Fatalf("renamed method receipt = %#v; want all three in-module call sites", result["renamed_bindings"])
 	}
 
 	safeFiles := []projectFile{files[0], files[1], files[3]}
@@ -1798,8 +1817,14 @@ func TestProjectModuleExportedMethodRenameRejectsInactiveTargetReference(t *test
 		safeRequest.ExpectedHash = safeBindings["source_sha256"].(string)
 		safeRequest.SourceSetHash = safeBindings["source_set_sha256"].(string)
 		safeRequest.Renames = []renameSelection{{ID: raw["id"].(string), NewName: "Serve"}}
-		if _, err := applyProjectModuleRenames(safeRequest); err != nil {
+		safeResult, err := applyProjectModuleRenames(safeRequest)
+		if err != nil {
 			t.Fatalf("unrelated Windows Do method blocked the Worker rename: %v", err)
+		}
+		for _, file := range safeResult["files"].([]map[string]any) {
+			if file["relative_path"] == "cmd/unrelated_windows.go" {
+				t.Fatalf("unrelated Windows Other.Do reference was edited: %#v", file)
+			}
 		}
 		return
 	}

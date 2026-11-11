@@ -165,9 +165,10 @@ type derivedFieldReference struct {
 }
 
 type projectRenameChoice struct {
-	item    binding
-	newName string
-	derived []derivedFieldReference
+	item     binding
+	newName  string
+	derived  []derivedFieldReference
+	inactive []inactiveMethodBindingReference
 }
 
 type sourceEdit struct {
