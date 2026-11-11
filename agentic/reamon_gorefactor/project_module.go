@@ -454,7 +454,11 @@ func moduleInterfaceContracts(catalog *projectModuleCatalog) (map[string]bool, e
 		}
 	}
 	packages := make(map[string]*types.Package)
-	queue := make([]*types.Package, 0)
+	encodingContracts, err := catalog.Importer.fallback.Import("encoding")
+	if err != nil {
+		return nil, fmt.Errorf("cannot load Go encoding interface contracts: %s", err.Error())
+	}
+	queue := []*types.Package{encodingContracts}
 	for _, packageCatalog := range catalog.Catalogs {
 		queue = append(queue, packageCatalog.Package)
 	}
@@ -488,6 +492,11 @@ func moduleInterfaceContracts(catalog *projectModuleCatalog) (map[string]bool, e
 			}
 			id := named.Obj().Pkg().Path() + "\x00" + named.Obj().Name()
 			interfacesByID[id] = iface.Complete()
+		}
+	}
+	if errorType, ok := types.Universe.Lookup("error").(*types.TypeName); ok {
+		if iface, ok := errorType.Type().Underlying().(*types.Interface); ok {
+			interfacesByID["builtin\x00error"] = iface.Complete()
 		}
 	}
 	contracts := make(map[string]bool)

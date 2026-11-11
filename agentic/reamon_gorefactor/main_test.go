@@ -137,6 +137,7 @@ type projectModuleRenameRejectFixture struct {
 	SelectedPath       string                     `json:"selected_path"`
 	OldName            string                     `json:"old_name"`
 	NewName            string                     `json:"new_name"`
+	Declaration        string                     `json:"declaration"`
 	ExpectedReferences int                        `json:"expected_references"`
 	ExpectedError      string                     `json:"expected_error"`
 	BuildContexts      []projectModuleRenameBuild `json:"build_contexts"`
@@ -563,7 +564,7 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renameFixture.NewName, "renamed")
 }
 
-func TestProjectModuleRenamePinnedGoogleUUIDPreservesStringerInterface(t *testing.T) {
+func TestProjectModuleRenamePinnedGoogleUUIDPreservesStandardInterfaces(t *testing.T) {
 	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_module_rename_holdout_v1.json"))
 	if err != nil {
 		t.Fatalf("read pinned module rename manifest: %v", err)
@@ -572,12 +573,21 @@ func TestProjectModuleRenamePinnedGoogleUUIDPreservesStringerInterface(t *testin
 	if err := json.Unmarshal(manifestBytes, &renameCorpus); err != nil {
 		t.Fatalf("parse pinned module rename manifest: %v", err)
 	}
-	if renameCorpus.Version != 1 || len(renameCorpus.RejectCases) != 1 {
-		t.Fatalf("module rename corpus version/rejection count = %d/%d; want 1/1", renameCorpus.Version, len(renameCorpus.RejectCases))
+	if renameCorpus.Version != 1 || len(renameCorpus.RejectCases) < 1 {
+		t.Fatalf("module rename corpus version/rejection count = %d/%d; want version 1 and at least one rejection", renameCorpus.Version, len(renameCorpus.RejectCases))
 	}
-	rejectFixture := renameCorpus.RejectCases[0]
-	if rejectFixture.Name != "google-uuid-v1.6.0-exported-String" || rejectFixture.ExpectedError == "" || len(rejectFixture.BuildContexts) != 3 {
-		t.Fatalf("pinned interface rejection fixture = %+v; want three build contexts", rejectFixture)
+	for _, rejectFixture := range renameCorpus.RejectCases {
+		rejectFixture := rejectFixture
+		t.Run(rejectFixture.Name, func(t *testing.T) {
+			assertPinnedGoogleUUIDInterfaceRenameRejected(t, rejectFixture)
+		})
+	}
+}
+
+func assertPinnedGoogleUUIDInterfaceRenameRejected(t *testing.T, rejectFixture projectModuleRenameRejectFixture) {
+	t.Helper()
+	if rejectFixture.ExpectedError == "" || rejectFixture.ExpectedReferences < 1 || rejectFixture.Declaration == "" || len(rejectFixture.BuildContexts) != 3 {
+		t.Fatalf("pinned interface rejection fixture = %+v; want declaration, references, and three build contexts", rejectFixture)
 	}
 	sourceManifestBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(rejectFixture.SourceManifest)))
 	if err != nil {
@@ -612,9 +622,12 @@ func TestProjectModuleRenamePinnedGoogleUUIDPreservesStringerInterface(t *testin
 			selectedSource = string(content)
 		}
 	}
-	if selectedSource == "" || !strings.Contains(selectedSource, "func (uuid UUID) String()") {
-		t.Fatal("pinned UUID source does not contain the selected String method")
+	declarationOffset := strings.Index(selectedSource, rejectFixture.Declaration)
+	nameOffset := strings.Index(rejectFixture.Declaration, rejectFixture.OldName)
+	if selectedSource == "" || declarationOffset < 0 || nameOffset < 0 {
+		t.Fatalf("pinned UUID source does not contain declaration %q", rejectFixture.Declaration)
 	}
+	declarationOffset += nameOffset
 	for _, build := range rejectFixture.BuildContexts {
 		build := build
 		t.Run(build.GOOS+"/"+build.GOARCH, func(t *testing.T) {
@@ -627,7 +640,6 @@ func TestProjectModuleRenamePinnedGoogleUUIDPreservesStringerInterface(t *testin
 			if err != nil {
 				t.Fatalf("catalog pinned UUID module: %v", err)
 			}
-			declarationOffset := strings.Index(selectedSource, "func (uuid UUID) String()") + len("func (uuid UUID) ")
 			var selected binding
 			for _, raw := range catalogResult["bindings"].([]map[string]any) {
 				if raw["name"] == rejectFixture.OldName && raw["relativePath"] == rejectFixture.SelectedPath && raw["declarationStart"] == declarationOffset {
@@ -800,6 +812,38 @@ func TestProjectModuleMethodRenamePreservesImportedInterfaceContracts(t *testing
 	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Flush"}}
 	if _, err := applyProjectModuleRenames(request); err == nil {
 		t.Fatal("renaming Write to Flush should break the imported io.Writer implementation contract")
+	}
+}
+
+func TestProjectModuleMethodRenamePreservesBuiltinErrorContract(t *testing.T) {
+	goMod := "module example.test/error-contract\n\ngo 1.25\n"
+	files := []projectFile{{
+		Path:   "pkg/error.go",
+		Source: "package pkg\ntype failure struct{}\nfunc (failure) Error() string { return \"failure\" }\nfunc message(value failure) string { return value.Error() }\n",
+	}}
+	request := goProjectRequest(files, "pkg/error.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/error-contract", goMod, hashText(goMod)
+	catalogResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("catalog built-in error implementation: %v", err)
+	}
+	var selected binding
+	for _, raw := range catalogResult["bindings"].([]map[string]any) {
+		if raw["name"] == "Error" {
+			selected = binding{ID: raw["id"].(string), Name: "Error", ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || selected.ReferenceCount != 1 || !selected.Exported {
+		t.Fatalf("built-in error method binding = %+v; want one resolved reference to exported Error", selected)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = catalogResult["source_sha256"].(string)
+	request.SourceSetHash = catalogResult["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Message"}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "Go rename would change a module or imported interface implementation contract") {
+		t.Fatalf("built-in error method rename error = %v; want rejection for breaking error", err)
 	}
 }
 
