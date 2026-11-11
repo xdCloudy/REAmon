@@ -40,6 +40,7 @@ const siblingOutput = 'package sample\nfunc run() int { return scale(1) }\n'
 const bindingId = '0123456789abcdef01234567'
 const methodBindingId = 'fedcba9876543210fedcba98'
 const importAliasBindingId = '1234567890abcdef12345678'
+const commandAliasBindingId = 'abcdef0123456789abcdef01'
 const inventoryPayload = {
   scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
   private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
@@ -433,7 +434,7 @@ describe('POST safe-renames Go package scope', () => {
     const moduleGoSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
     const moduleSelectedSource = 'package pkg\nimport tx "strings"\ntype Worker struct{}\nfunc (Worker) Do() int { return len(tx.TrimSpace(tx.Join([]string{"a", "b"}, "-"))) }\n'
     const moduleSiblingSource = 'package pkg\nfunc local() int { return Worker{}.Do() }\n'
-    const commandSource = 'package main\nimport "example.test/app/pkg"\nfunc Run() int { return pkg.Worker{}.Do() }\nfunc Expr() func(pkg.Worker) int { return pkg.Worker.Do }\n'
+    const commandSource = 'package main\nimport app "example.test/app/pkg"\nfunc Run() int { return app.Worker{}.Do() }\nfunc Expr() func(app.Worker) int { return app.Worker.Do }\n'
     const largeProjectSource = `package pkg\n//${'x'.repeat(512 * 1024 + 1)}\n`
     const commandPath = 'cmd/main.go'
     const largeProjectPath = 'pkg/generated.go'
@@ -490,8 +491,8 @@ describe('POST safe-renames Go package scope', () => {
         { id: importAliasBindingId, name: 'tx', kind: 'file import alias', scope: 'file', relativePath: selectedPath,
           declarationStart: moduleSelectedSource.indexOf('tx'), referenceCount: 2, exported: false,
           classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
-        { id: 'acbd1234567890efacbd1234', name: 'pkg', kind: 'file import alias', scope: 'file', relativePath: commandPath,
-          declarationStart: commandSource.indexOf('pkg'), referenceCount: 3, exported: false,
+        { id: commandAliasBindingId, name: 'app', kind: 'file import alias', scope: 'file', relativePath: commandPath,
+          declarationStart: commandSource.indexOf('app'), referenceCount: 3, exported: false,
           classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' },
         { id: methodBindingId, name: 'Do', kind: 'method', scope: 'member', relativePath: selectedPath,
         declarationStart: moduleSelectedSource.indexOf('Do'), referenceCount: 3, exported: true,
@@ -499,13 +500,26 @@ describe('POST safe-renames Go package scope', () => {
       ],
     }
     const outputFiles = moduleFiles.map((file) => {
-      const sourceCode = file.sourceCode.replaceAll('Do', 'Serve')
       const edits: Array<{ start: number; end: number; old_text: string; new_text: string }> = []
       let offset = 0
       while ((offset = file.sourceCode.indexOf('Do', offset)) >= 0) {
         edits.push({ start: offset, end: offset + 2, old_text: 'Do', new_text: 'Serve' })
         offset += 2
       }
+      if (file.relativePath === commandPath) {
+        const aliasDeclaration = file.sourceCode.indexOf('app "example.test/app/pkg"')
+        if (aliasDeclaration >= 0) edits.push({ start: aliasDeclaration, end: aliasDeclaration + 3, old_text: 'app', new_text: 'application' })
+        offset = 0
+        while ((offset = file.sourceCode.indexOf('app.Worker', offset)) >= 0) {
+          edits.push({ start: offset, end: offset + 3, old_text: 'app', new_text: 'application' })
+          offset += 'app.Worker'.length
+        }
+      }
+      let sourceCode = file.sourceCode
+      for (const edit of [...edits].sort((left, right) => right.start - left.start)) {
+        sourceCode = `${sourceCode.slice(0, edit.start)}${edit.new_text}${sourceCode.slice(edit.end)}`
+      }
+      edits.sort((left, right) => left.start - right.start)
       return { ...file, sourceCode, edits }
     })
     const inventoryScope = inventoryScopeHash(moduleFiles, {
@@ -526,7 +540,9 @@ describe('POST safe-renames Go package scope', () => {
           { id: methodBindingId, name: 'Do', kind: 'method', scopeType: 'member', relativePath: selectedPath,
             declarationStart: moduleSelectedSource.indexOf('Do'), referenceCount: 3, exported: true },
           { id: importAliasBindingId, name: 'tx', kind: 'file import alias', scopeType: 'file', relativePath: selectedPath,
-            declarationStart: moduleSelectedSource.indexOf('tx'), referenceCount: 2, exported: false },
+            importPath: 'strings', declarationStart: moduleSelectedSource.indexOf('tx'), referenceCount: 2, exported: false },
+          { id: commandAliasBindingId, name: 'app', kind: 'file import alias', scopeType: 'file', relativePath: commandPath,
+            importPath: 'example.test/app/pkg', declarationStart: commandSource.indexOf('app'), referenceCount: 3, exported: false },
         ],
         truncated: false, parser_version: 'go1.25.0',
       })
@@ -549,7 +565,10 @@ describe('POST safe-renames Go package scope', () => {
         inventory_scope_sha256: inventoryScope, output_inventory_scope_sha256: 'c'.repeat(64),
         output_source_set_sha256: setHash(outputFiles), output_sha256: inputHash(outputFiles[0].sourceCode),
         source_code: outputFiles[0].sourceCode, parser_version: 'go1.25.0',
-        renamed_bindings: [{ bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', kind: 'method', referenceCount: 3, scopeType: 'member', exported: true }],
+        renamed_bindings: [
+          { bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', kind: 'method', referenceCount: 3, scopeType: 'member', exported: true },
+          { bindingId: commandAliasBindingId, oldName: 'app', newName: 'application', kind: 'file import alias', referenceCount: 3, scopeType: 'file', exported: false, relativePath: commandPath },
+        ],
         files: outputFiles.filter((file) => file.edits.length > 0).map((file) => {
           const original = moduleFiles.find((item) => item.relativePath === file.relativePath)!
           return {
@@ -562,9 +581,11 @@ describe('POST safe-renames Go package scope', () => {
         expect(request.allow_exported_go_methods).toBe(true)
         expect(request.bindings).toContainEqual(expect.objectContaining({ id: methodBindingId, exported: true }))
         expect(request.bindings).toContainEqual(expect.objectContaining({ id: importAliasBindingId, name: 'tx', kind: 'file import alias', scopeType: 'file' }))
+        expect(request.bindings).toContainEqual(expect.objectContaining({ id: commandAliasBindingId, name: 'app', relativePath: commandPath, importPath: 'example.test/app/pkg' }))
         return jsonResponse({ renames: [
           { bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', rationale: 'clear public method name' },
           { bindingId: importAliasBindingId, oldName: 'tx', newName: 'textutil', rationale: 'clarify package alias' },
+          { bindingId: commandAliasBindingId, oldName: 'app', newName: 'application', rationale: 'show this binding uses the local application package' },
         ] })
       }
       return baseImplementation(url, init)
@@ -579,6 +600,7 @@ describe('POST safe-renames Go package scope', () => {
     expect(receivedLargeProjectSnapshot.value).toBe(true)
     expect(suggestions).toMatchObject({ scope: 'module', sourceSetSha256: setHash(moduleFiles), projectInventory: { sourceFileCount: 4, packageCount: 2 }, renames: [
       { oldName: 'Do', newName: 'Serve' }, { oldName: 'tx', newName: 'textutil', kind: 'file import alias' },
+      { oldName: 'app', newName: 'application', kind: 'file import alias', relativePath: commandPath },
     ] })
     const savedProposal = h.attemptCreate.mock.calls[0]?.[0].data.requestPayload
     expect(savedProposal).toMatchObject({ goProjectScope: true, goModuleScope: true, goModuleInventoryScopeSha256: inventoryScope })
@@ -612,7 +634,10 @@ describe('POST safe-renames Go package scope', () => {
       body: JSON.stringify({
         operation: 'apply', unitId: 'unit-a', providerId: 'provider-1', sourceCode: moduleSelectedSource,
         expectedSha256: inputHash(moduleSelectedSource), suggestionAttemptId: 'suggestion-attempt-1', moduleGo: true,
-        renames: [{ bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', rationale: 'clear public method name' }],
+        renames: [
+          { bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', rationale: 'clear public method name' },
+          { bindingId: commandAliasBindingId, oldName: 'app', newName: 'application', rationale: 'show this binding uses the local application package', relativePath: commandPath },
+        ],
       }),
     }), routeParams)
     const applied = await applyResponse.json()

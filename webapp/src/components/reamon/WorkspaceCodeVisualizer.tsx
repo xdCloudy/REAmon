@@ -207,7 +207,7 @@ interface CodeReviewRecord {
 }
 interface AcceptedRenameAlias { bindingId: string; oldName: string; newName: string; kind: string }
 interface CodeMemberOutline { name: string; kind: 'function' | 'method' | 'constructor'; start_byte: number; end_byte: number; line: number; source_bytes: number }
-interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string }
+interface SafeRenameProposal { bindingId: string; oldName: string; newName: string; kind: string; referenceCount: number; rationale: string; relativePath?: string }
 interface GoProjectInventoryEntry { id: string; name: string; kind: string; scope: 'package' | 'file' | 'local' | 'member'; relativePath: string; declarationStart: number; referenceCount: number; exported: boolean; classification: 'eligible' | 'excluded' | 'unsupported'; classificationReason: string; nameAssessment: 'unassessed' }
 interface GoProjectInventory { scope: 'reviewed-same-directory-go-package-source-snapshot' | 'verified-whole-project-go-source-snapshot'; complete: boolean; sourceFileCount: number; packageCount: number; privatePackageSymbolCount: number; referencedPrivatePackageSymbols: number; unreferencedPrivateSymbols: number; exportedPackageSymbolCount: number; unsupportedPackageSymbolCount: number; fileScopeSymbolCount: number; referencedFileScopeSymbols: number; unreferencedFileScopeSymbols: number; unsupportedFileScopeSymbolCount: number; localSymbolCount: number; referencedLocalSymbols: number; unreferencedLocalSymbols: number; unsupportedLocalSymbolCount: number; memberSymbolCount: number; unsupportedMemberSymbolCount: number; renameBindingCatalogTruncated: boolean; entryCount: number; entriesTruncated: boolean; entries: GoProjectInventoryEntry[] }
 interface SafeRenameSuggestions { sourceSha256: string; providerId: string; providerName: string; model: string; attemptId: string; projectSymbolContextSha256: string; projectSymbolScanTruncated?: boolean; scope: 'file' | 'project' | 'module'; sourceSetSha256?: string | null; projectInventorySourceSetSha256?: string | null; projectInventoryError?: string | null; projectInventory?: GoProjectInventory | null; candidates: number; renames: SafeRenameProposal[] }
@@ -1994,25 +1994,32 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       }
       setMaintainedDraft(result.sourceCode)
       setMaintenanceMeta(result)
-      setMaintainedSaved(false)
-      let draftId: string
+      let draftId: string | null = null
       if (result.projectChanges?.length) {
         const selectedChange = result.projectChanges.find((change) => change.unitId === selectedUnit.id)
-        if (!selectedChange || selectedChange.draftId !== result.draftId || !result.draftUpdatedAt) {
+        if (selectedChange && (selectedChange.draftId !== result.draftId || !result.draftUpdatedAt)) {
           throw new Error('The project rename response did not include the selected file draft receipt')
         }
-        draftId = selectedChange.draftId
-        const record: CodeDraftRecord = {
-          id: draftId, sourceCode: result.sourceCode, sourceAttemptId: result.attemptId ?? null,
-          providerName: result.providerName, modelIdentifier: result.model, question: question.trim(),
-          scope: 'file', syntaxValidated: result.syntaxValidated ?? null, validationStatus: result.validationStatus ?? null,
-          validationMethod: result.validationMethod ?? null, validationMessage: result.validationMessage ?? null,
-          updatedAt: result.draftUpdatedAt,
+        if (selectedChange) {
+          draftId = selectedChange.draftId
+          const record: CodeDraftRecord = {
+            id: draftId, sourceCode: result.sourceCode, sourceAttemptId: result.attemptId ?? null,
+            providerName: result.providerName, modelIdentifier: result.model, question: question.trim(),
+            scope: 'file', syntaxValidated: result.syntaxValidated ?? null, validationStatus: result.validationStatus ?? null,
+            validationMethod: result.validationMethod ?? null, validationMessage: result.validationMessage ?? null,
+            updatedAt: result.draftUpdatedAt!,
+          }
+          setDraftId(record.id)
+          setDraftSource(result.sourceCode)
+          setDraftScope('file')
+          setMaintainedSaved(false)
+          queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], (current) => ({ exists: true, draft: record, attempts: current?.attempts }))
+        } else {
+          setDraftId(null)
+          setDraftSource(null)
+          setDraftScope('file')
+          setMaintainedSaved(true)
         }
-        setDraftId(record.id)
-        setDraftSource(result.sourceCode)
-        setDraftScope('file')
-        queryClient.setQueryData<CodeDraftResponse>(['reamon-code-draft', projectId, selectedUnit.id], (current) => ({ exists: true, draft: record, attempts: current?.attempts }))
         for (const change of result.projectChanges) {
           await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, change.unitId] })
         }
@@ -2020,6 +2027,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
         setDraftId(null)
         setDraftSource(null)
         setDraftScope('file')
+        setMaintainedSaved(false)
         draftId = await persistCodeDraft(result.sourceCode, result, 'file')
       }
       await queryClient.invalidateQueries({ queryKey: ['reamon-code-draft', projectId, selectedUnit.id] })
@@ -2028,7 +2036,8 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
       const projectFileMessage = result.projectChanges?.length
         ? ` Saved review drafts for ${result.projectChanges.map((change) => change.relativePath).join(', ')}; select each Go code unit to inspect its draft.`
         : ''
-      setSafeRenameStatus(`Applied ${result.renamedBindings?.length || renames.length} scope-safe rename${(result.renamedBindings?.length || renames.length) === 1 ? '' : 's'}; draft ${draftId} is saved for review.${projectFileMessage}`)
+      const selectedDraftMessage = draftId ? ` Draft ${draftId} is saved for review.` : ' The selected source had no edits.'
+      setSafeRenameStatus(`Applied ${result.renamedBindings?.length || renames.length} scope-safe rename${(result.renamedBindings?.length || renames.length) === 1 ? '' : 's'}.${selectedDraftMessage}${projectFileMessage}`)
     } catch (error) {
       setMaintenanceError(error instanceof Error ? error.message : 'Could not apply the selected safe renames')
     } finally {
@@ -3517,7 +3526,7 @@ export function WorkspaceCodeVisualizer({ projectId, isAnalyzing, analysisTask, 
                     else next.delete(proposal.bindingId)
                     return next
                   })} />
-                  <strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}
+                  <strong>{proposal.oldName} → {proposal.newName}</strong> · {proposal.kind} · {proposal.referenceCount} reference{proposal.referenceCount === 1 ? '' : 's'}{proposal.relativePath ? ` · ${proposal.relativePath}` : ''}
                   <span>{proposal.rationale}</span>
                 </label>
               </li>)}</ul>

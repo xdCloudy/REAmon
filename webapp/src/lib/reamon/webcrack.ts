@@ -57,6 +57,8 @@ export interface SafeRenameBinding {
   referenceCount: number
   scopeType: string
   exported: boolean
+  relativePath?: string
+  importPath?: string
 }
 
 export interface SafeRenameCatalog {

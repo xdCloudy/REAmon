@@ -582,12 +582,16 @@ async function listGoModuleRenameBindings(
   const bindings = Array.isArray(payload?.bindings) ? payload.bindings.map(plainObject) : []
   const listedFiles = Array.isArray(payload?.files) ? payload.files.map(plainObject) : []
   const expectedFiles = [...files].sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0)
+  const modulePaths = new Set(expectedFiles.map((file) => file.relativePath))
   const sourceSetSha256 = hashGoPackageSourceSet(files)
   const validBindings = bindings.every((binding) => /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
     && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
     && ((binding.kind === 'method' && binding.scopeType === 'member')
       || (binding.kind === 'file import alias' && binding.scopeType === 'file' && binding.exported === false))
-    && binding.relativePath === selectedPath
+    && (binding.kind === 'method'
+      ? binding.relativePath === selectedPath
+      : typeof binding.relativePath === 'string' && modulePaths.has(binding.relativePath)
+        && typeof binding.importPath === 'string' && binding.importPath.length > 0 && binding.importPath.length <= 512)
     && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
     && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0
     && typeof binding.exported === 'boolean')
@@ -793,6 +797,7 @@ async function applyGoProjectRenameBindings(
     }]
   })
   const selectedOutput = validatedFiles.find((file) => file.relativePath === selectedPath)?.sourceCode
+    ?? expectedByPath.get(selectedPath)?.sourceCode
   const renamedById = new Map(renamed.flatMap((value) => {
     const item = plainObject(value)
     return typeof item.bindingId === 'string' ? [[item.bindingId, item] as const] : []
@@ -1554,6 +1559,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           newName: rename.newName,
           kind: binding.kind,
           referenceCount: binding.referenceCount,
+          ...(binding.relativePath ? { relativePath: binding.relativePath } : {}),
           rationale: rename.rationale.slice(0, 400),
         }]
       }).slice(0, 80)
@@ -1593,7 +1599,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             goProjectModuleSumSha256: goProjectModuleContext.sumSha256,
             goProjectInventoryError,
             goProjectInventory: goProjectCatalog ? JSON.parse(JSON.stringify(goProjectCatalog.inventory)) : null,
-            bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, referenceCount: candidate.referenceCount, exported: candidate.exported })),
+            bindings: candidates.map((candidate) => ({ id: candidate.id, name: candidate.name, kind: candidate.kind, scopeType: candidate.scopeType, relativePath: candidate.relativePath, importPath: candidate.importPath, referenceCount: candidate.referenceCount, exported: candidate.exported })),
             projectSymbolContext,
             projectSymbolContextSha256,
             projectSymbolScanTruncated,
@@ -1713,7 +1719,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       const saved = savedRenames.map(plainObject).find((proposal) => proposal.bindingId === item.bindingId)
       if (!binding || (binding.exported && !moduleGo) || typeof item.newName !== 'string' || item.oldName !== binding.name
           || typeof item.rationale !== 'string' || item.rationale.length > 400
-          || !saved || saved.oldName !== item.oldName || saved.newName !== item.newName || saved.kind !== binding.kind || saved.rationale !== item.rationale) {
+          || !saved || (saved.relativePath !== undefined && saved.relativePath !== binding.relativePath)
+          || saved.oldName !== item.oldName || saved.newName !== item.newName || saved.kind !== binding.kind || saved.rationale !== item.rationale) {
         return NextResponse.json({ error: 'A selected rename no longer matches the current source bindings' }, { status: 409 })
       }
     }

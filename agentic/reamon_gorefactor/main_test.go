@@ -580,6 +580,82 @@ func TestProjectModuleRenameUpdatesExplicitImportAlias(t *testing.T) {
 	assertProjectModuleAliasBehavior(t, original, goMod, "renamed")
 }
 
+func TestProjectModuleRenameUpdatesImportAliasesAcrossFiles(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/strings.go", Source: "package pkg\nimport text \"strings\"\nfunc Run() string { return text.Join([]string{\"a\", \"b\"}, \"-\") }\n"},
+		{Path: "pkg/use.go", Source: "package pkg\nfunc Other() string { return Run() }\n"},
+		{Path: "cmd/run.go", Source: "package main\nimport (\"example.test/app/pkg\"; trim \"strings\")\nfunc RunCommand() string { return trim.TrimSpace(\" value \") + pkg.Run() }\n"},
+	}
+	request := goProjectRequest(files, "pkg/strings.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindingsResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module bindings: %v", err)
+	}
+	aliases := make(map[string]binding)
+	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+		if raw["kind"] != "file import alias" {
+			continue
+		}
+		name := raw["name"].(string)
+		aliases[name] = binding{
+			ID: raw["id"].(string), Name: name, Kind: raw["kind"].(string),
+			ScopeType: raw["scopeType"].(string), FilePath: raw["relativePath"].(string),
+			ReferenceCount: raw["referenceCount"].(int),
+		}
+	}
+	if aliases["text"].ID == "" || aliases["text"].FilePath != "pkg/strings.go" || aliases["text"].ReferenceCount != 1 ||
+		aliases["trim"].ID == "" || aliases["trim"].FilePath != "cmd/run.go" || aliases["trim"].ReferenceCount != 1 {
+		t.Fatalf("module import aliases = %#v; want reviewed aliases from the selected and command files", aliases)
+	}
+	original := map[string]string{
+		"pkg/strings.go": files[0].Source, "pkg/use.go": files[1].Source, "cmd/run.go": files[2].Source,
+	}
+	assertProjectModuleAliasBehavior(t, original, goMod, "original")
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindingsResult["source_sha256"].(string)
+	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+	request.Renames = []renameSelection{
+		{ID: aliases["text"].ID, NewName: "strlib"},
+		{ID: aliases["trim"].ID, NewName: "trimutil"},
+	}
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename module import aliases across files: %v", err)
+	}
+	outputs := outputsBeforeRename(files)
+	editCounts := make(map[string]int)
+	for _, file := range result["files"].([]map[string]any) {
+		filePath := file["relative_path"].(string)
+		outputs[filePath] = file["source_code"].(string)
+		for _, edit := range file["edits"].([]map[string]any) {
+			oldName, newName := edit["old_text"], edit["new_text"]
+			if !((oldName == "text" && newName == "strlib") || (oldName == "trim" && newName == "trimutil")) {
+				t.Fatalf("module import alias edit = %#v; want one of the selected alias renames", edit)
+			}
+			editCounts[filePath]++
+		}
+	}
+	if !reflect.DeepEqual(editCounts, map[string]int{"pkg/strings.go": 2, "cmd/run.go": 2}) ||
+		!strings.Contains(outputs["pkg/strings.go"], "import strlib \"strings\"") ||
+		!strings.Contains(outputs["cmd/run.go"], "trimutil \"strings\"") {
+		t.Fatalf("cross-file alias outputs/edits = %#v / %#v; want declaration and use edits in two files", outputs, editCounts)
+	}
+	if result["source_set_sha256"] != bindingsResult["source_set_sha256"] || result["output_source_set_sha256"] == result["source_set_sha256"] {
+		t.Fatalf("module source-set hashes = %v -> %v", result["source_set_sha256"], result["output_source_set_sha256"])
+	}
+	original["pkg/strings.go"] = outputs["pkg/strings.go"]
+	original["cmd/run.go"] = outputs["cmd/run.go"]
+	assertProjectModuleAliasBehavior(t, original, goMod, "renamed")
+	request.Renames = []renameSelection{{ID: aliases["trim"].ID, NewName: "trimutil"}}
+	unchangedSelected, err := applyProjectModuleRenames(request)
+	if err != nil || unchangedSelected["source_code"] != files[0].Source {
+		t.Fatalf("sibling-only alias rename result = %v, err=%v; want unchanged selected source", unchangedSelected, err)
+	}
+}
+
 func TestProjectModuleImportAliasRenameRejectsLocalCapture(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
 	files := []projectFile{
@@ -654,6 +730,16 @@ func assertProjectModuleAliasBehavior(t *testing.T, files map[string]string, goM
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
 		t.Fatalf("write %s module manifest: %v", variant, err)
+	}
+	if commandSource, ok := files["cmd/run.go"]; ok && strings.Contains(commandSource, "RunCommand") {
+		commandTestPath := filepath.Join(root, "cmd", "alias_behavior_test.go")
+		commandTest := "package main\nimport \"testing\"\nfunc TestCommandImportAliasBehavior(t *testing.T) { if got := RunCommand(); got != \"valuea-b\" { t.Fatalf(\"RunCommand() = %q\", got) } }\n"
+		if err := os.MkdirAll(filepath.Dir(commandTestPath), 0o700); err != nil {
+			t.Fatalf("create %s command behavior package: %v", variant, err)
+		}
+		if err := os.WriteFile(commandTestPath, []byte(commandTest), 0o600); err != nil {
+			t.Fatalf("write %s command behavior oracle: %v", variant, err)
+		}
 	}
 	for relative, source := range files {
 		full := filepath.Join(root, filepath.FromSlash(relative))

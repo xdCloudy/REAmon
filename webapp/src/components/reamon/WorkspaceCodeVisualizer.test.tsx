@@ -822,6 +822,66 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(await screen.findByText('Do → Serve')).toBeInTheDocument()
   })
 
+  test('applies a module alias from another file when the selected source has no edits', async () => {
+    const source = 'package sample\nfunc normalize() {}\n'
+    const goUnit = unit({ language: 'Go', artifactPath: 'pkg/normalize.go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/pkg/normalize.go' })
+    const aliasId = '102132435465768798a9bacb'
+    const inventory = {
+      scope: 'verified-whole-project-go-source-snapshot', complete: true, packageCount: 2, sourceFileCount: 2,
+      privatePackageSymbolCount: 0, referencedPrivatePackageSymbols: 0, unreferencedPrivateSymbols: 0,
+      exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0,
+      fileScopeSymbolCount: 1, referencedFileScopeSymbols: 1, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
+      localSymbolCount: 0, referencedLocalSymbols: 0, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
+      memberSymbolCount: 0, unsupportedMemberSymbolCount: 0, renameBindingCatalogTruncated: false,
+      entryCount: 1, entriesTruncated: false,
+      entries: [{ id: aliasId, name: 'str', kind: 'file import alias', scope: 'file', relativePath: 'cmd/main.go', declarationStart: 20, referenceCount: 2, exported: false, classification: 'eligible', classificationReason: 'file-import-alias-with-resolved-references', nameAssessment: 'unassessed' }],
+    }
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-local', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => source })
+      if (input.includes('/visualizer/safe-renames') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { operation: string }
+        if (body.operation === 'suggest') return Promise.resolve({ ok: true, json: async () => ({
+          sourceSha256: 'a'.repeat(64), sourceSetSha256: 'b'.repeat(64), providerId: 'provider-local', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B',
+          attemptId: 'attempt-module-alias-1', projectSymbolContextSha256: 'c'.repeat(64), scope: 'module', candidates: 1,
+          projectInventory: inventory,
+          renames: [{ bindingId: aliasId, oldName: 'str', newName: 'stringsutil', kind: 'file import alias', referenceCount: 2, rationale: 'Clarify the imported string utility package.', relativePath: 'cmd/main.go' }],
+        }) })
+        return Promise.resolve({ ok: true, json: async () => ({
+          sourceCode: source, providerName: 'REAmon scope-safe renames', model: 'Qwen3.5-0.8B', attemptId: 'attempt-apply-1',
+          syntaxValidated: true, validationStatus: 'PASSED', validationMethod: 'go1.25.0+go-types-module-binding-identity',
+          validationMessage: 'The selected module binding was preserved.', renamedBindings: [{ oldName: 'str', newName: 'stringsutil' }],
+          projectChanges: [{ unitId: 'unit-other', relativePath: 'cmd/main.go', draftId: 'draft-other' }],
+        }) })
+      }
+      if (input.includes('/visualizer/drafts/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, draft: null }) })
+      if (input.includes('/visualizer/maintained/')) return Promise.resolve({ ok: true, json: async () => ({ exists: false, sourceCode: null }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [goUnit], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Include every Go package in the module/ }))
+    const suggestButton = await screen.findByRole('button', { name: 'Suggest scope-safe renames' })
+    await waitFor(() => expect(suggestButton).toBeEnabled())
+    fireEvent.click(suggestButton)
+
+    expect(await screen.findByText(/str → stringsutil/)).toBeInTheDocument()
+    expect(screen.getAllByText(/cmd\/main\.go/).length).toBeGreaterThanOrEqual(1)
+    const applyButton = await screen.findByRole('button', { name: 'Apply 1 selected rename' })
+    fireEvent.click(applyButton)
+
+    expect(await screen.findByText(/The selected source had no edits/)).toBeInTheDocument()
+    expect(screen.getByText(/Saved review drafts for cmd\/main\.go/)).toBeInTheDocument()
+    const applyRequest = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/safe-renames') && init?.method === 'POST' && JSON.parse(String(init.body)).operation === 'apply')
+    expect(JSON.parse(String(applyRequest?.[1]?.body))).toMatchObject({
+      moduleGo: true,
+      renames: [{ bindingId: aliasId, relativePath: 'cmd/main.go', oldName: 'str', newName: 'stringsutil' }],
+    })
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes('/visualizer/drafts/') && init?.method === 'POST')).toBe(false)
+  })
+
   test('creates an editable AI reverse-engineered copy and saves it separately', async () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })

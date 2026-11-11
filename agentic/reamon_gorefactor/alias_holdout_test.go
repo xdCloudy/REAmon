@@ -108,7 +108,7 @@ func TestProjectModuleImportAliasPinnedXSysWindowsV060(t *testing.T) {
 								ReferenceCount: raw["referenceCount"].(int)}
 						}
 					}
-					if aliasCount != 1 || selected.ID == "" || selected.Kind != "file import alias" ||
+					if aliasCount != len(independentAliases) || selected.ID == "" || selected.Kind != "file import alias" ||
 						selected.ScopeType != "file" || selected.ReferenceCount != goldReferences {
 						t.Fatalf("pinned x/sys alias catalog = %+v (aliases=%d); want one file alias with %d references", selected, aliasCount, goldReferences)
 					}

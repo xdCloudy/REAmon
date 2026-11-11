@@ -202,9 +202,6 @@ func (catalog *projectModuleCatalog) collectMethodBindings() {
 				continue
 			}
 			position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
-			if position.Filename != catalog.SelectedPath {
-				continue
-			}
 			uses := []*ast.Ident{identifier}
 			for use, used := range packageCatalog.Info.Uses {
 				if used == alias {
@@ -271,11 +268,15 @@ func listProjectModuleBindings(req request) (map[string]any, error) {
 	catalog.collectMethodBindings()
 	bindings := make([]map[string]any, 0, len(catalog.Bindings))
 	for _, item := range catalog.Bindings {
-		bindings = append(bindings, map[string]any{
+		row := map[string]any{
 			"id": item.ID, "name": item.Name, "kind": item.Kind, "scopeType": item.ScopeType,
 			"relativePath": item.FilePath, "declarationStart": item.DeclarationStart,
 			"referenceCount": item.ReferenceCount, "exported": item.Exported,
-		})
+		}
+		if alias, ok := item.Object.(*types.PkgName); ok {
+			row["importPath"] = alias.Imported().Path()
+		}
+		bindings = append(bindings, row)
 	}
 	files := make([]map[string]any, 0, len(catalog.Files))
 	for _, file := range catalog.Files {
@@ -309,7 +310,7 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 	seen := make(map[string]bool)
 	for _, rename := range req.Renames {
 		item, ok := catalog.BindingByID[rename.ID]
-		if !ok || item.FilePath != catalog.SelectedPath || seen[rename.ID] ||
+		if !ok || (item.FilePath != catalog.SelectedPath && item.Kind != "file import alias") || seen[rename.ID] ||
 			len(rename.NewName) > 128 || !token.IsIdentifier(rename.NewName) ||
 			token.Lookup(rename.NewName).IsKeyword() || rename.NewName == item.Name {
 			return nil, fmt.Errorf("A selected Go rename no longer matches a binding in the module snapshot")
@@ -402,6 +403,9 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 	outputRequest := req
 	outputRequest.Files = outputFiles
 	outputRequest.Source = outputsByPath[catalog.SelectedPath]
+	if outputRequest.Source == "" {
+		outputRequest.Source = filesByPath[catalog.SelectedPath].Text
+	}
 	outputRequest.ExpectedHash = ""
 	outputRequest.SourceSetHash = ""
 	outputCatalog, err := buildProjectModuleCatalog(outputRequest)
@@ -447,7 +451,7 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 	}
 	selectedOutput := outputsByPath[catalog.SelectedPath]
 	if selectedOutput == "" {
-		return nil, fmt.Errorf("Selected Go method rename did not edit its declaration source")
+		selectedOutput = filesByPath[catalog.SelectedPath].Text
 	}
 	renamed := make([]map[string]any, 0, len(selected))
 	for _, choice := range selected {
