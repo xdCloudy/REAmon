@@ -131,7 +131,7 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35
 
 **Next measurable gate:** Expand held-out explicit-alias accuracy to independent upstream modules and operating systems; measure false and missed references; add downstream-consumer compatibility; then extend semantic propagation to another language.
 
-Refreshed from pushed commit `4290e8d`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `9a1d1ac`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
