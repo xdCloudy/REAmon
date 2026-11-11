@@ -23,10 +23,10 @@ const server = http.createServer(async (request, response) => {
       return
     }
     const candidates = Array.isArray(payload.bindings) ? payload.bindings : []
-    const candidate = candidates.find((item) => item?.name === 'fn') || candidates[0]
+    const candidate = candidates.find((item) => item?.name === 'Do') || candidates.find((item) => item?.name === 'fn') || candidates[0]
     console.log(`deterministic rename candidates: ${JSON.stringify(candidates)}`)
     console.log(`deterministic rename selected: ${JSON.stringify(candidate)}`)
-    const renames = candidate ? [{ bindingId: candidate.id, oldName: candidate.name, newName: 'calculate', rationale: 'The source returns a calculation result.' }] : []
+    const renames = candidate ? [{ bindingId: candidate.id, oldName: candidate.name, newName: candidate.name === 'Do' ? 'Serve' : 'calculate', rationale: 'The source and verified call sites identify the operation.' }] : []
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(JSON.stringify({ renames, model_used: payload.model }))
     return

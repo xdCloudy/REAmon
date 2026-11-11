@@ -17,6 +17,7 @@ $wsTicketSecret = [Convert]::ToBase64String([Security.Cryptography.RandomNumberG
 $internalApiKey = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
 $previousBaseUrl = $env:REDAMON_BASE_URL
 $previousAuthSecret = $env:REDAMON_E2E_AUTH_SECRET
+$previousAppContainer = $env:REAMON_E2E_APP_CONTAINER
 $listener = [System.Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 $listener.Start()
 $port = $listener.LocalEndpoint.Port
@@ -85,6 +86,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed with exit code $LASTEXITCODE" }
     $env:REDAMON_BASE_URL = $baseUrl
     $env:REDAMON_E2E_AUTH_SECRET = $authSecret
+    $env:REAMON_E2E_APP_CONTAINER = $appName
     & npx playwright test goSafeRenamesBrowser.spec.ts
     $playwrightExitCode = $LASTEXITCODE
     if ($playwrightExitCode -ne 0) {
@@ -94,6 +96,7 @@ try {
   } finally {
     if ($null -eq $previousBaseUrl) { Remove-Item Env:\REDAMON_BASE_URL -ErrorAction SilentlyContinue } else { $env:REDAMON_BASE_URL = $previousBaseUrl }
     if ($null -eq $previousAuthSecret) { Remove-Item Env:\REDAMON_E2E_AUTH_SECRET -ErrorAction SilentlyContinue } else { $env:REDAMON_E2E_AUTH_SECRET = $previousAuthSecret }
+    if ($null -eq $previousAppContainer) { Remove-Item Env:\REAMON_E2E_APP_CONTAINER -ErrorAction SilentlyContinue } else { $env:REAMON_E2E_APP_CONTAINER = $previousAppContainer }
     Pop-Location
   }
 } finally {

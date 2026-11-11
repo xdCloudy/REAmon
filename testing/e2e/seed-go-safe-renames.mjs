@@ -11,8 +11,10 @@ const artifactId = 'browser-go-rename-artifact'
 const taskId = 'browser-go-rename-task'
 const selectedUnitId = 'browser-go-rename-unit'
 const siblingUnitId = 'browser-go-rename-sibling'
-const source = 'package sample\nimport "example.test/dep"\nfunc fn(value int) int { return dep.Value + value }\n'
-const siblingSource = 'package sample\nfunc run() int { return fn(1) }\n'
+const commandUnitId = 'browser-go-rename-command'
+const source = 'package pkg\nimport "example.test/dep"\ntype Worker struct{}\nfunc (Worker) Do() int { return dep.Value }\n'
+const siblingSource = 'package pkg\nfunc local() int { return Worker{}.Do() }\n'
+const commandSource = 'package main\nimport "example.test/fixture/pkg"\nfunc Run() int { return pkg.Worker{}.Do() }\nfunc Expr() func(pkg.Worker) int { return pkg.Worker.Do }\n'
 const hash = (value) => createHash('sha256').update(value, 'utf8').digest('hex')
 const root = process.env.REAMON_DERIVED_PATH || '/data/reamon-derived'
 const runKey = `${projectId}/${artifactId}/${taskId}/run-1`
@@ -47,6 +49,7 @@ try {
   })
   for (const [id, relativePath, sourceCode] of [
     [selectedUnitId, 'pkg/a.go', source], [siblingUnitId, 'pkg/b.go', siblingSource],
+    [commandUnitId, 'cmd/main.go', commandSource],
   ]) {
     await prisma.reamonObservation.create({
       data: {
@@ -59,21 +62,26 @@ try {
     await mkdir(path.dirname(sourcePath), { recursive: true })
     await writeFile(sourcePath, sourceCode, 'utf8')
   }
-  const reviewId = 'browser-go-rename-sibling-review'
-  await prisma.reamonCodeReview.create({
-    data: {
-      id: reviewId, projectId, artifactId, codeUnitId: siblingUnitId, reviewerId: userId,
-      decision: 'ACCEPTED', rationale: 'Synthetic accepted source for the isolated browser acceptance.',
-      maintainedSourceHash: hash(siblingSource),
-    },
-  })
-  await prisma.reamonMaintainedSource.create({
-    data: {
-      projectId, artifactId, codeUnitId: siblingUnitId, unitName: 'pkg/b.go', language: 'Go',
-      sourceCode: siblingSource, sourceHash: hash(siblingSource), acceptedReviewId: reviewId, relativePath: 'pkg/b.go',
-    },
-  })
-  process.stdout.write(JSON.stringify({ projectId, userId, providerId, selectedUnitId, siblingUnitId, moduleSumSha256: hash(goSum) }))
+  const acceptedSources = [
+    [siblingUnitId, 'pkg/b.go', siblingSource], [commandUnitId, 'cmd/main.go', commandSource],
+  ]
+  for (const [unitId, relativePath, sourceCode] of acceptedSources) {
+    const reviewId = `browser-go-rename-review-${unitId}`
+    await prisma.reamonCodeReview.create({
+      data: {
+        id: reviewId, projectId, artifactId, codeUnitId: unitId, reviewerId: userId,
+        decision: 'ACCEPTED', rationale: 'Synthetic accepted source for the isolated browser acceptance.',
+        maintainedSourceHash: hash(sourceCode),
+      },
+    })
+    await prisma.reamonMaintainedSource.create({
+      data: {
+        projectId, artifactId, codeUnitId: unitId, unitName: relativePath, language: 'Go',
+        sourceCode, sourceHash: hash(sourceCode), acceptedReviewId: reviewId, relativePath,
+      },
+    })
+  }
+  process.stdout.write(JSON.stringify({ projectId, userId, providerId, selectedUnitId, siblingUnitId, commandUnitId, moduleSumSha256: hash(goSum) }))
 } finally {
   await prisma.$disconnect()
 }
