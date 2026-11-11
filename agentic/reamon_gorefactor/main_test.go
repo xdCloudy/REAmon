@@ -895,22 +895,47 @@ func TestProjectModuleRenamePinnedHttprouterV130(t *testing.T) {
 				t.Fatalf("pinned httprouter rename disclosure = %#v; want exported Handle -> Register", renamedBindings)
 			}
 			outputs := outputsBeforeRename(files)
-			editCount := 0
+			type expectedEdit struct {
+				start, end int
+				newText    string
+			}
+			editCounts := make(map[string]int)
+			editsByFile := make(map[string][]expectedEdit)
+			sourceByPath := filesByPath(files)
 			for _, output := range result["files"].([]map[string]any) {
 				filePath := output["relative_path"].(string)
 				outputs[filePath] = output["source_code"].(string)
+				source, exists := sourceByPath[filePath]
+				if !exists {
+					t.Fatalf("pinned httprouter returned an edit for unknown file %s", filePath)
+				}
 				for _, edit := range output["edits"].([]map[string]any) {
 					start, startOK := edit["start"].(int)
 					end, endOK := edit["end"].(int)
-					source := filesByPath(files)[filePath]
-					if edit["old_text"] != "Handle" || edit["new_text"] != "Register" || !startOK || !endOK || start < 0 || end > len(source) || source[start:end] != "Handle" {
+					if edit["old_text"] != "Handle" || edit["new_text"] != "Register" || !startOK || !endOK || start < 0 || end < start || end > len(source) || source[start:end] != "Handle" {
 						t.Fatalf("pinned httprouter edit for %s = %#v; want exact Handle -> Register byte span", filePath, edit)
 					}
-					editCount++
+					editCounts[filePath]++
+					editsByFile[filePath] = append(editsByFile[filePath], expectedEdit{start: start, end: end, newText: "Register"})
 				}
 			}
-			if editCount != 9 {
-				t.Fatalf("pinned httprouter rename emitted %d edits; want declaration plus eight references", editCount)
+			if !reflect.DeepEqual(editCounts, map[string]int{"router.go": 9}) {
+				t.Fatalf("pinned httprouter edits by file = %#v; want exactly nine edits in router.go and none elsewhere", editCounts)
+			}
+			for filePath, edits := range editsByFile {
+				original := []byte(sourceByPath[filePath])
+				for i := 1; i < len(edits); i++ {
+					for j := i; j > 0 && edits[j].start > edits[j-1].start; j-- {
+						edits[j], edits[j-1] = edits[j-1], edits[j]
+					}
+				}
+				expected := append([]byte(nil), original...)
+				for _, edit := range edits {
+					expected = append(expected[:edit.start], append([]byte(edit.newText), expected[edit.end:]...)...)
+				}
+				if outputs[filePath] != string(expected) {
+					t.Fatalf("pinned httprouter output for %s contains changes outside the nine reported Handle edits", filePath)
+				}
 			}
 			if build.GOOS == "linux" && build.GOARCH == "amd64" {
 				linuxOutputs = outputs
