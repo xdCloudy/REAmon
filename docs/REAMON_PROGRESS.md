@@ -1,10 +1,10 @@
 # REAmon product progress
 
-Assessment date: 2026-11-10 · Source: pushed commit `1996f1a` · Weighted estimate: **34.11%**
+Assessment date: 2026-11-11 · Source: pushed commit `ffa8895` · Weighted estimate: **34.11%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
-## Recent activity (2026-11-10)
+## Recent activity (2026-11-11)
 
 - Go inventory and semantic package checks now support target GOOS and GOARCH values from the installed Go toolchain, with target-specific architecture defaults and matching standard-library export data.
 - Go itself selects files for target OS, architecture, and declared tags. Cgo source remains explicitly unsupported and cross-target cgo defaults off. External imports now resolve only through hash-verified module receipts and verified offline caches.
@@ -27,10 +27,11 @@ This estimate covers the reverse-engineering product goal and secure production 
 - Private same-package Go receiver methods can now be selected for semantic rename through go/types object identity. The implementation updates declarations, selectors, and method expressions across package files; rejects receiver method collisions and local interface contract changes; re-type-checks output; and tests behavior before and after on a pinned fixture. Full Go helper tests pass, focused safe-renames/UI tests pass 44/44, and targeted ESLint passes.
 - A method-specific stale-source regression now changes a type-correct sibling file after catalog creation and proves apply rejects the old source-set receipt; the complete Go helper package suite passes.
 - An embedded-field collision fixture now confirms that a promoted receiver method blocks a conflicting rename; the focused regression and full Go helper package suite pass.
+- A module-snapshot Go helper prototype now catalogs exported receiver methods across a supplied module source set, applies exact declaration/selector/method-expression edits across packages, re-type-checks output, and rejects a rename that breaks imported io.Writer. Three focused Docker tests pass, covering behavior before/after, exact per-file byte edits, and stale source-set rejection; the full Go helper package suite passes. This is not wired into the web route or UI, so it receives no weighted credit yet.
 
-**Score decision:** Award one partial point to the 8%-weight Agentic project-wide semantic-renaming workstream (36% to 37%). Independently tested Go receiver-method renaming now edits resolved references and preserves behavior while rejecting receiver collisions and local interface-contract changes. The selected-source inventory censuses remain 120/120 pkg/errors and 161/161 google/uuid declarations across Linux/amd64, Windows/amd64, and Linux/arm64, plus gorilla/mux 531/531 and go-isatty 4/4 in their tested contexts. Weighted progress moves from 34.03% to 34.11% (+0.08 points). These selected source subsets do not establish full-module discovery, application-scale accuracy, exported API rename safety, or general member rename support. This stale-source regression adds safety evidence but no additional weighted completion. The promoted-method collision regression adds safety evidence only and receives no additional weighted point.
+**Score decision:** The weighted estimate remains 34.11% (0.00-point change). The helper-level module-snapshot prototype now has three focused Docker tests, including stale source-set rejection, and the full Go helper package suite passes. It is not integrated into the web route/UI, so it is not yet a complete user-reachable capability and receives no weighted credit. The prior receiver-method, promoted-method collision, and stale-source regressions remain documented; safety-only evidence does not add weighted completion.
 
-**Next measurable gate:** Expand Go semantic renames from a single-package private-method path to complete module snapshots. Build pinned multi-package fixtures that check cross-package selectors, exported interface/API compatibility, stale receipts, exact edits, compilation, and behavior; reject any rename whose required source packages are missing.
+**Next measurable gate:** Integrate module snapshot catalog/apply operations into the existing Go rename route and review UI. Bind proposals to every source hash and build-context receipt, reject stale module snapshots, test exported API and imported-interface compatibility, then run focused route/UI checks and the full Go helper package suite before recalculating weighted progress.
 
 | Workstream | Goal weight | Estimated complete | Weighted points |
 | --- | ---: | ---: | ---: |
