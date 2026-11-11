@@ -111,7 +111,7 @@ Latest evidence-based score change (2026-11-11): **+0.00 points** (34.11% → 34
 
 **Next measurable gate:** Integrate module snapshot catalog/apply operations into the existing Go rename route and review UI. Bind proposals to every source hash and build-context receipt, reject stale module snapshots, test exported API and imported-interface compatibility, then run focused route/UI checks and the full Go helper package suite before recalculating weighted progress.
 
-Refreshed from pushed commit `ffa8895`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `584826a`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
