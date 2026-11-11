@@ -121,7 +121,7 @@ Latest evidence-based score change (2026-11-11): **+0.07 points** (34.61% → 34
 
 **Next measurable gate:** Add held-out rename cases from additional upstream packages and reference forms, preserve platform/build-tag evidence, measure false and missed references, and continue bounded downstream-consumer compatibility work.
 
-Refreshed from pushed commit `bf53053`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `e032eb4`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
