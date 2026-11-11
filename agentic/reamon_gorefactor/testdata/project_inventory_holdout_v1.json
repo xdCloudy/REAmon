@@ -16,7 +16,8 @@
       ],
       "build_contexts": [
         {"goos": "linux", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108},
-        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108}
+        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108},
+        {"goos": "linux", "goarch": "arm64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108}
       ]
     },
     {

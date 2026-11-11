@@ -455,8 +455,8 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 
 func assertPinnedGorillaMuxMethodRename(t *testing.T, renameFixture projectModuleRenameFixture) {
 	t.Helper()
-	if renameFixture.Name == "" || len(renameFixture.Operations) != 1 || len(renameFixture.BuildContexts) != 2 || renameFixture.BehaviorRouterMethod == "" || renameFixture.BehaviorRouteMethod == "" {
-		t.Fatalf("pinned module rename fixture = %+v; want one selected method and two build contexts", renameFixture)
+	if renameFixture.Name == "" || len(renameFixture.Operations) != 1 || len(renameFixture.BuildContexts) != 3 || renameFixture.BehaviorRouterMethod == "" || renameFixture.BehaviorRouteMethod == "" {
+		t.Fatalf("pinned module rename fixture = %+v; want one selected method and three build contexts", renameFixture)
 	}
 	sourceManifestBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(renameFixture.SourceManifest)))
 	if err != nil {

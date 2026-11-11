@@ -19,7 +19,8 @@
       ],
       "build_contexts": [
         { "goos": "linux", "goarch": "amd64" },
-        { "goos": "windows", "goarch": "amd64" }
+        { "goos": "windows", "goarch": "amd64" },
+        { "goos": "linux", "goarch": "arm64" }
       ]
     },
     {
@@ -40,7 +41,8 @@
       ],
       "build_contexts": [
         { "goos": "linux", "goarch": "amd64" },
-        { "goos": "windows", "goarch": "amd64" }
+        { "goos": "windows", "goarch": "amd64" },
+        { "goos": "linux", "goarch": "arm64" }
       ]
     }
   ],
