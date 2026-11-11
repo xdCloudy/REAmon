@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="35.14" max="100">35.14%</progress> <strong>35.14%</strong> — weighted estimate **35.14%**.
+<progress value="35.22" max="100">35.22%</progress> <strong>35.22%</strong> — weighted estimate **35.22%**.
 
-Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35.14%). One partial point for coordinated explicit Go import-alias batches across module files is supported by the full Docker Go refactor suite, a multi-package behavior oracle, route and visualizer regressions, TypeScript type-check, and targeted ESLint. PostgreSQL acceptance now verifies two-file proposal persistence, draft reload, and transaction rollback using controlled helper responses; broad held-out accuracy and downstream-consumer compatibility remain open.
+Latest evidence-based score change (2026-11-11): **+0.08 points** (35.14% → 35.22%). One partial point for hash-pinned github.com/pkg/errors v0.9.1 explicit-alias accuracy is supported by an independent AST census (1 declaration / 3 references, zero false or missed results), four byte-exact rename edits, matching original/renamed behavior, Linux/amd64, Windows/amd64, and Linux/arm64 builds, plus the full Go refactor package suite under Go 1.25. The semantic-renaming workstream rises from 42% to 43%; overall progress rises 35.14% to 35.22%. Broader held-out accuracy and downstream-consumer compatibility remain open.
 
 **Work completed (2026-11-11):**
 
@@ -127,12 +127,13 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35
 - The Go whole-project safe-renames route now accepts and forwards an accepted, hash-verified source file larger than 512 KiB and up to 2 MiB under the existing 8 MiB aggregate limit; package-scope and single-file limits remain 512 KiB. A route regression proves a 512 KiB+ unmodified sibling reaches the module helper and stays out of changed-file drafts. Focused route tests pass 11/11, Docker TypeScript type-check and targeted ESLint pass. No weighted point is added because this completes the route integration for the already-scored project-snapshot capability.
 - Module-snapshot Go safe renames now coordinate explicit import aliases from multiple files; helper binding, exact edits, unchanged-selected-file behavior, and before/after module behavior are covered. Full Docker Go package suite passes (62.855s); route/UI tests pass 48/48; TypeScript type-check and targeted ESLint pass. Database-backed acceptance remains unverified.
 - Opt-in PostgreSQL acceptance now saves and reloads a Go module alias batch across two files and confirms rollback leaves no drafts after an injected transaction failure. The database integration suite passes 2/2; helper responses are mocked in this suite and real helper semantics are covered by the Docker Go package tests. Focused web tests pass 50/50, with TypeScript type-check and targeted ESLint passing.
+- A second independent upstream explicit-alias holdout adds a partial rename-accuracy increment. Hash-pinned github.com/pkg/errors v0.9.1 source confirms stderrors declaration/reference census 1/3 with zero false or missed bindings; the helper emits exactly four byte-exact edits, and original/renamed behavior matches. Linux/amd64, Windows/amd64, and Linux/arm64 builds pass. The full Go refactor package suite passes under Go 1.25. This raises Agentic project-wide semantic renaming from 42% to 43%, adding 0.08 weighted points overall (35.14% to 35.22%). Two upstream alias modules are now covered; broader held-out accuracy and downstream-consumer compatibility remain open.
 
 **Score decision:** The weighted estimate remains 35.14%. PostgreSQL-backed module alias persistence, draft reload, and transaction rollback extend acceptance evidence for the existing 42% semantic-renaming workstream; the database suite uses controlled helper responses, so this is not a new weighted capability point.
 
 **Next measurable gate:** Expand held-out explicit-alias accuracy to independent upstream modules and operating systems; measure false and missed references; add downstream-consumer compatibility; then extend semantic propagation to another language.
 
-Refreshed from pushed commit `93a6053`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `2a160ec`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
