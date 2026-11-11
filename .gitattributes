@@ -27,3 +27,4 @@ tooling/benchmarks/**/runs/**/*.java text eol=lf
 tooling/benchmarks/**/runs/**/*.tsv text eol=lf
 tooling/benchmarks/**/runs/**/*.txt text eol=lf
 agentic/reamon_gorefactor/testdata/upstream_jsonparser_v1_1_1/** text eol=lf
+agentic/reamon_gorefactor/testdata/upstream_goldmark_v1_7_8/** text eol=lf

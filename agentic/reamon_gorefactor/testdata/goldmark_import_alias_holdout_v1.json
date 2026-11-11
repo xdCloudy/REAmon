@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "module_path": "github.com/yuin/goldmark",
+  "source_commit": "d9c03f07f08c2d36f23afe52dda865f05320ac86",
+  "module_sum": "h1:iERMLn0/QJeHFhxSt3p6PeN9mGnvIKSpG9YYorDMnic=",
+  "go_mod_fixture_path": "upstream_goldmark_v1_7_8/go.mod",
+  "go_mod_sha256": "bdf09d2443cb9b0142c328976d79859a2c87becc007fa156fc251540388cb499",
+  "license_fixture_path": "upstream_goldmark_v1_7_8/LICENSE",
+  "license_sha256": "c1d6f653c38c80294dc7994647ba0dcc508ce64a86996303c804efa2f7982bff",
+  "files": [
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/ast/ast.go",
+      "inventory_path": "ast/ast.go",
+      "sha256": "5aaf5be05ccb59c6b6c991fc77c2590ef6474cf87794433fd31ff5752a3ee903"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/ast/block.go",
+      "inventory_path": "ast/block.go",
+      "sha256": "7d937e6ce50eb1e20e280e2a6f3ce30fb4817b1417f576fd5500c7d103beb76e"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/ast/inline.go",
+      "inventory_path": "ast/inline.go",
+      "sha256": "f1f9276ef5032f8e57c2abc7ead92b0fb859748922a6dbcaafaaba8b5d2f88ab"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/ast/definition_list.go",
+      "inventory_path": "extension/ast/definition_list.go",
+      "sha256": "d2152c92b322da3180c0a37f18c7d012e7633bbd0d787dc19168e946492bcf93"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/ast/footnote.go",
+      "inventory_path": "extension/ast/footnote.go",
+      "sha256": "5654d27c023a04aa66c1541364a2c64396f7babe1022d67543d04fe2d80b9c97"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/ast/strikethrough.go",
+      "inventory_path": "extension/ast/strikethrough.go",
+      "sha256": "947a96bd9927c9a3a96c19872eccb2a9c2cb24acea87cd99daae88472f2a9642"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/ast/table.go",
+      "inventory_path": "extension/ast/table.go",
+      "sha256": "45b46506c0fa506ff0b928bdc7161d652f76569186d46fca490b0e11c741c2d3"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/ast/tasklist.go",
+      "inventory_path": "extension/ast/tasklist.go",
+      "sha256": "f2c926bdab95e58c6e50bad13218ba26b275356c89502c0fea8405ec59c23a34"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/cjk.go",
+      "inventory_path": "extension/cjk.go",
+      "sha256": "f3edd095c5722da875026d10abaa7cd4c3c7552c808ad7ecbd929cccae28b293"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/definition_list.go",
+      "inventory_path": "extension/definition_list.go",
+      "sha256": "ea879ed171a82a5f15cdbb9fabb83075fe1fd1440ca32fb318aba134d85136a8"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/footnote.go",
+      "inventory_path": "extension/footnote.go",
+      "sha256": "ecc6477000b7dbae8fbd978cfc71c93c38dc41c183fd59d758126ae2b87aa3eb"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/gfm.go",
+      "inventory_path": "extension/gfm.go",
+      "sha256": "871f660ec76a075eae1be872b1eee75d38e26dd2ddafc3b64cce50579b154ccf"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/linkify.go",
+      "inventory_path": "extension/linkify.go",
+      "sha256": "bee7f803f34fe02fd57749940bcca11f183e9864adcd9e1a0d1aa906e48d4388"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/package.go",
+      "inventory_path": "extension/package.go",
+      "sha256": "9a8e50892be43ad5608031e02359ad5b65ded56eab233ddf8738768b1a29bae5"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/strikethrough.go",
+      "inventory_path": "extension/strikethrough.go",
+      "sha256": "b1190b61be34a468ebcf4f8bfbd17c72367cc6dd06c0faa02d616563c3ac25e6"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/table.go",
+      "inventory_path": "extension/table.go",
+      "sha256": "93567862798cc4e12614a78ce72f79147f97431bcb513381a36d835b1abdb61d"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/tasklist.go",
+      "inventory_path": "extension/tasklist.go",
+      "sha256": "d9d6802748e5af68858d37f2b9c7e9a7aecb67077cdcc994c93a2d24d7971d39"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/extension/typographer.go",
+      "inventory_path": "extension/typographer.go",
+      "sha256": "00536a0363705a159ce379ef5c39ff849c93513ad34ad1d967f383e8daa6529e"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/markdown.go",
+      "inventory_path": "markdown.go",
+      "sha256": "8ac6e2fb0416a9c750b03b75546ea301aa4efb46ddbd9cb0e675e189d1367fae"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/attribute.go",
+      "inventory_path": "parser/attribute.go",
+      "sha256": "45b7ac896c20961ea916da2271efb8f810080058caf604d89ffab3ed64427397"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/atx_heading.go",
+      "inventory_path": "parser/atx_heading.go",
+      "sha256": "f12664e8af3d3b6226068450b4bbf45bc20ac43239aeba287f82b4c439b8a269"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/auto_link.go",
+      "inventory_path": "parser/auto_link.go",
+      "sha256": "d3a28138697772023ebdd445e5cd6b2cb25da42eb78560737f02d39b408473ea"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/blockquote.go",
+      "inventory_path": "parser/blockquote.go",
+      "sha256": "21a1f947b9989c271d79d862b76199622bbd7099f93e8e763646d67499080e43"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/code_block.go",
+      "inventory_path": "parser/code_block.go",
+      "sha256": "a9cdf3c341e2fd4952306395a37947fea3386f06109a5104f23127782dbadd58"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/code_span.go",
+      "inventory_path": "parser/code_span.go",
+      "sha256": "537c74e0e9cb480077b282c876f28f0d94c95b9b357c52500432eae800b79b3a"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/delimiter.go",
+      "inventory_path": "parser/delimiter.go",
+      "sha256": "5daae00a4b7f864e14ea4dccbf3d968a080962b0effa97e685b51599e1a5643c"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/emphasis.go",
+      "inventory_path": "parser/emphasis.go",
+      "sha256": "b352699a47d6da878233d9f6f17b8e1337a331cc97de8b5adec000ea7183652e"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/fcode_block.go",
+      "inventory_path": "parser/fcode_block.go",
+      "sha256": "1f74796259da01e876f77558f0e80b33b66de04bcc0ce99c2509e2b9b0a82864"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/html_block.go",
+      "inventory_path": "parser/html_block.go",
+      "sha256": "57547b50e7c5fa1555b75e48f0cc275746bb0f7a60f7f7c690a9fbeb19d48326"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/link.go",
+      "inventory_path": "parser/link.go",
+      "sha256": "c8f5af1298c68f10b47c75f8e57ee8ec3f0d7e5a3b2f7bac57a4cd99ba5b6684"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/link_ref.go",
+      "inventory_path": "parser/link_ref.go",
+      "sha256": "f0bff0f7c915a75a3c7a17015f70abb47a8f83ffa0d83bd48873ac0418c5342e"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/list.go",
+      "inventory_path": "parser/list.go",
+      "sha256": "e4dd95ef4b16ca01f0751b7f9a8a3a1ef7a0e0ede176dc5af1bacbda7058126a"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/list_item.go",
+      "inventory_path": "parser/list_item.go",
+      "sha256": "ad116ff161e7c8aaab4331d0a61dfba4a334a1380e90799b7634249d25fca062"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/paragraph.go",
+      "inventory_path": "parser/paragraph.go",
+      "sha256": "b6b50748cb382861c23d63cff5c9f0954b18f70fa7c0584f36a953b6c4dca606"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/parser.go",
+      "inventory_path": "parser/parser.go",
+      "sha256": "1b8593321dd7a05fd083586fed05c703d9b7208d5eabf6939e8533b073bb094d"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/raw_html.go",
+      "inventory_path": "parser/raw_html.go",
+      "sha256": "1a262e29d0f5b8c4b7e7949718e044df65d0f337f2e3bc629ec90f9cdd403d0b"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/setext_headings.go",
+      "inventory_path": "parser/setext_headings.go",
+      "sha256": "477afcfabfe9b4924a01086eb20a2666c3d245e29bb0193e3b12ccdd7c513d9d"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/parser/thematic_break.go",
+      "inventory_path": "parser/thematic_break.go",
+      "sha256": "c456de9225e94d716f2b6ceb9e588ced5fb4bafddf5437f236a4535851ee85bf"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/renderer/html/html.go",
+      "inventory_path": "renderer/html/html.go",
+      "sha256": "d8ed38c33739734febd0cb082535810b13ab6796ba038b760635a01f571a6c82"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/renderer/renderer.go",
+      "inventory_path": "renderer/renderer.go",
+      "sha256": "23441285dc57291c1e0bd38d95cf61349b0f2472ad16f5c462fc871731394bf8"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/testutil/testutil.go",
+      "inventory_path": "testutil/testutil.go",
+      "sha256": "7de9d8f055c8a08bf8e2db0c8e381f70ec50a8d0023f9b66a0c687fee299db72"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/text/package.go",
+      "inventory_path": "text/package.go",
+      "sha256": "c8855557fc0c92e2e28877a765af5ba76359344062e8edcd8f01bdc4d692f1e6"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/text/reader.go",
+      "inventory_path": "text/reader.go",
+      "sha256": "43937714c91104868e40d7eae52a59e40c85468c93cb2c5ea12bd17db40eccca"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/text/segment.go",
+      "inventory_path": "text/segment.go",
+      "sha256": "1c1a3f644d949a589ade00ac2e4b176fe25929e52e3f520cd5e3f50a76ed857a"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/html5entities.go",
+      "inventory_path": "util/html5entities.go",
+      "sha256": "ba4755f766a9be64294294ea8ccb7c4314b63571ce23f61e6fcabae0af87733a"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/unicode_case_folding.go",
+      "inventory_path": "util/unicode_case_folding.go",
+      "sha256": "10a7e26b8d188945b2764a4fcb2a1c22223e6f03e67590ec85d390ded3766578"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/util.go",
+      "inventory_path": "util/util.go",
+      "sha256": "ede249b187945c94555c7b4ba32a9628c07a844a2e1753745d1390e8c230fc36"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/util_cjk.go",
+      "inventory_path": "util/util_cjk.go",
+      "sha256": "18dec3d3162d19191767af3159b3a4ae233ad700a301abd7221bfb1d86a25479"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/util_safe.go",
+      "inventory_path": "util/util_safe.go",
+      "sha256": "86a245b774af1086c86e97d87f84140424fb98741775c912841c3d9ac3ab9458"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/util_unsafe_go120.go",
+      "inventory_path": "util/util_unsafe_go120.go",
+      "sha256": "09300d5a3478e3f43bd8ae8b50ea879ba60caee04938a8e9961ad27d6a3bd9b2"
+    },
+    {
+      "fixture_path": "upstream_goldmark_v1_7_8/util/util_unsafe_go121.go",
+      "inventory_path": "util/util_unsafe_go121.go",
+      "sha256": "cc8da469424f5bd71dec42219fc0f222b4390317582daf5a2f68fa850ef0ad72"
+    }
+  ],
+  "aliases": [
+    {
+      "selected_path": "ast/ast.go",
+      "name": "textm",
+      "expected_references": 2,
+      "new_name": "textsrc"
+    },
+    {
+      "selected_path": "ast/block.go",
+      "name": "textm",
+      "expected_references": 6,
+      "new_name": "textsrc"
+    },
+    {
+      "selected_path": "ast/inline.go",
+      "name": "textm",
+      "expected_references": 9,
+      "new_name": "textsrc"
+    },
+    {
+      "selected_path": "extension/ast/definition_list.go",
+      "name": "gast",
+      "expected_references": 14,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/ast/footnote.go",
+      "name": "gast",
+      "expected_references": 16,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/ast/strikethrough.go",
+      "name": "gast",
+      "expected_references": 4,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/ast/table.go",
+      "name": "gast",
+      "expected_references": 16,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/ast/tasklist.go",
+      "name": "gast",
+      "expected_references": 4,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/definition_list.go",
+      "name": "gast",
+      "expected_references": 20,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/footnote.go",
+      "name": "gast",
+      "expected_references": 28,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/strikethrough.go",
+      "name": "gast",
+      "expected_references": 7,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/table.go",
+      "name": "gast",
+      "expected_references": 25,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/tasklist.go",
+      "name": "gast",
+      "expected_references": 8,
+      "new_name": "goldmarkast"
+    },
+    {
+      "selected_path": "extension/typographer.go",
+      "name": "gast",
+      "expected_references": 17,
+      "new_name": "goldmarkast"
+    }
+  ],
+  "build_contexts": [
+    {
+      "goos": "linux",
+      "goarch": "amd64"
+    },
+    {
+      "goos": "windows",
+      "goarch": "amd64"
+    },
+    {
+      "goos": "linux",
+      "goarch": "arm64"
+    }
+  ]
+}
