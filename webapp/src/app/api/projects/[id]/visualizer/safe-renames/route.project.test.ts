@@ -587,7 +587,10 @@ describe('POST safe-renames Go package scope', () => {
         return jsonResponse({
         scope: 'module', source_sha256: inputHash(moduleSelectedSource), source_set_sha256: setHash(moduleFiles),
         inventory_scope_sha256: inventoryScope, output_inventory_scope_sha256: 'c'.repeat(64),
-        downstream_compatibility: { status: 'checked', checked_modules: 1, build_goos: 'linux', build_goarch: 'amd64' },
+        downstream_compatibility: {
+          status: 'checked', checked_modules: 1, build_goos: 'linux', build_goarch: 'amd64',
+          checked_build_contexts: [{ goos: 'linux', goarch: 'amd64', build_tags: [] }],
+        },
         output_source_set_sha256: setHash(outputFiles), output_sha256: inputHash(outputFiles[0].sourceCode),
         source_code: outputFiles[0].sourceCode, parser_version: 'go1.25.0',
         renamed_bindings: [
@@ -674,7 +677,10 @@ describe('POST safe-renames Go package scope', () => {
     expect(applyResponse.status, JSON.stringify(applied)).toBe(200)
     expect(applied).toMatchObject({ sourceCode: outputFiles[0].sourceCode, sourceSetSha256: setHash(moduleFiles), outputSourceSetSha256: setHash(outputFiles) })
     expect(receivedDownstreamSnapshot.value).toBe(true)
-    expect(applied.downstreamCompatibility).toMatchObject({ status: 'checked', checkedModules: 1, buildGOOS: 'linux', buildGOARCH: 'amd64' })
+    expect(applied.downstreamCompatibility).toMatchObject({
+      status: 'checked', checkedModules: 1, buildGOOS: 'linux', buildGOARCH: 'amd64',
+      checkedBuildContexts: [{ goos: 'linux', goarch: 'amd64', buildTags: [] }],
+    })
     expect(applied.projectChanges.map((change: { relativePath: string }) => change.relativePath).sort()).toEqual([selectedPath, siblingPath, commandPath].sort())
     expect(h.txDraftCreate).toHaveBeenCalledTimes(3)
     expect(h.txDraftCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({

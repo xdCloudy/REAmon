@@ -1553,7 +1553,59 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 			if compatibility["status"] != "checked" || compatibility["checked_modules"] != 1 || compatibility["build_goos"] != target.goos || compatibility["build_goarch"] != target.goarch {
 				t.Fatalf("downstream compatibility receipt = %#v; want one type-checked consumer module for %s/%s", compatibility, target.goos, target.goarch)
 			}
+			contexts, ok := compatibility["checked_build_contexts"].([]map[string]any)
+			if !ok {
+				t.Fatalf("downstream checked build contexts = %#v; want three platform receipts", compatibility["checked_build_contexts"])
+			}
+			seen := make(map[string]bool, len(contexts))
+			for _, context := range contexts {
+				seen[context["goos"].(string)+"/"+context["goarch"].(string)] = true
+			}
+			if len(seen) != 3 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] {
+				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64", contexts)
+			}
 		})
+	}
+}
+
+func TestProjectModuleExportedRenameChecksDownstreamAlternateBuildContexts(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n"
+	files := []projectFile{{
+		Path:   "pkg/api.go",
+		Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n",
+	}}
+	request := goProjectRequest(files, "pkg/api.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindings, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindings["bindings"].([]map[string]any) {
+		if raw["name"] == "Do" && raw["kind"] == "method" {
+			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || !selected.Exported {
+		t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindings["source_sha256"].(string)
+	request.SourceSetHash = bindings["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+	request.DownstreamModulesComplete = true
+	request.DownstreamModules = []downstreamModuleSnapshot{{
+		ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
+		Files: []projectFile{
+			{Path: "consumer_linux_amd64.go", Source: "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n"},
+			{Path: "consumer_windows_amd64.go", Source: "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n"},
+		},
+	}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "Go rename breaks downstream module example.test/consumer") || !strings.Contains(err.Error(), "windows/amd64") || !strings.Contains(err.Error(), "Do") {
+		t.Fatalf("alternate-context downstream check error = %v; want rejection identifying the Windows Do reference", err)
 	}
 }
 

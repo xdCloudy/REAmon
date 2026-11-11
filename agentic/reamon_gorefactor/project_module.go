@@ -404,6 +404,28 @@ func unselectedMethodVariant(catalog *projectModuleCatalog, method *types.Func) 
 	return "", nil
 }
 
+func projectValidationBuildContexts(current goBuildContext) []goBuildContext {
+	contexts := []goBuildContext{current}
+	for _, target := range [][2]string{{"linux", "amd64"}, {"windows", "amd64"}, {"linux", "arm64"}, {"windows", "arm64"}, {"js", "wasm"}} {
+		context := current
+		context.GOOS, context.GOARCH = target[0], target[1]
+		if context.GOOS == current.GOOS && context.GOARCH == current.GOARCH {
+			continue
+		}
+		duplicate := false
+		for _, existing := range contexts {
+			if existing.GOOS == context.GOOS && existing.GOARCH == context.GOARCH && existing.CgoEnabled == context.CgoEnabled && strings.Join(existing.Tags, "\x00") == strings.Join(context.Tags, "\x00") {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			contexts = append(contexts, context)
+		}
+	}
+	return contexts
+}
+
 func unselectedMethodReference(req request, catalog *projectModuleCatalog, method *types.Func) (string, error) {
 	targetReceiver, ok := receiverNamedObject(method)
 	if !ok {
@@ -434,15 +456,7 @@ func unselectedMethodReference(req request, catalog *projectModuleCatalog, metho
 	if err != nil {
 		return "", err
 	}
-	targets := []goBuildContext{current}
-	for _, target := range [][2]string{{"linux", "amd64"}, {"windows", "amd64"}, {"linux", "arm64"}, {"windows", "arm64"}, {"js", "wasm"}} {
-		context := current
-		context.GOOS, context.GOARCH = target[0], target[1]
-		if context.GOOS == current.GOOS && context.GOARCH == current.GOARCH {
-			continue
-		}
-		targets = append(targets, context)
-	}
+	targets := projectValidationBuildContexts(current)
 	currentPaths := make(map[string]bool, len(catalog.CatalogByFile))
 	for filePath := range catalog.CatalogByFile {
 		currentPaths[filePath] = true
@@ -500,6 +514,51 @@ func unselectedMethodReference(req request, catalog *projectModuleCatalog, metho
 		alternate.close()
 	}
 	return "", nil
+}
+
+func downstreamModuleImportsTarget(downstream downstreamModuleSnapshot, importedModulePath string, build goBuildContext) (bool, error) {
+	selected, err := selectDownstreamBuildFiles(downstream.Files, build)
+	if err != nil {
+		return false, err
+	}
+	for _, file := range selected {
+		parsed, parseErr := parser.ParseFile(token.NewFileSet(), file.Path, file.Source, parser.AllErrors|parser.ParseComments)
+		if parseErr != nil {
+			return false, fmt.Errorf("downstream Go parser rejected %s: %s", file.Path, parseErr.Error())
+		}
+		for _, spec := range parsed.Imports {
+			importPath, unquoteErr := strconv.Unquote(spec.Path.Value)
+			if unquoteErr == nil && (importPath == importedModulePath || strings.HasPrefix(importPath, importedModulePath+"/")) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func selectDownstreamBuildFiles(files []projectFile, build goBuildContext) ([]projectFile, error) {
+	groups := make(map[string][]projectFile)
+	for _, file := range files {
+		groups[path.Dir(file.Path)] = append(groups[path.Dir(file.Path)], file)
+	}
+	directories := make([]string, 0, len(groups))
+	for directory := range groups {
+		directories = append(directories, directory)
+	}
+	sort.Strings(directories)
+	selected := make([]projectFile, 0, len(files))
+	for _, directory := range directories {
+		packageFiles, err := selectGoBuildFiles(groups[directory], build)
+		if err != nil {
+			if strings.Contains(err.Error(), "has no files for build target") {
+				continue
+			}
+			return nil, err
+		}
+		selected = append(selected, packageFiles...)
+	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
+	return selected, nil
 }
 
 func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream downstreamModuleSnapshot, build goBuildContext) (bool, error) {
@@ -576,7 +635,7 @@ func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream do
 	if !importsTarget {
 		return false, nil
 	}
-	selectedFiles, err := selectGoBuildFiles(files, context)
+	selectedFiles, err := selectDownstreamBuildFiles(files, context)
 	if err != nil {
 		return true, fmt.Errorf("cannot select downstream Go build files: %w", err)
 	}
@@ -615,7 +674,7 @@ func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream do
 		}
 	}
 	if len(packageRequests) == 0 {
-		return true, fmt.Errorf("downstream Go module has no source packages for the target build context")
+		return false, nil
 	}
 	fallback := newGoTargetImporter(context)
 	if fallback.setupErr != nil {
@@ -873,26 +932,97 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 			if contextErr != nil {
 				return nil, contextErr
 			}
-			checkedModules := 0
-			for _, downstream := range req.DownstreamModules {
-				importsTarget, checkErr := checkDownstreamModuleCompatibility(catalog, downstream, buildContext)
-				if checkErr != nil {
-					return nil, fmt.Errorf("cannot verify downstream compatibility for %s against original module: %s", downstream.ModulePath, checkErr.Error())
+			checkedModules := make(map[string]bool)
+			checkedContexts := make([]map[string]any, 0, len(projectValidationBuildContexts(buildContext)))
+			for contextIndex, target := range projectValidationBuildContexts(buildContext) {
+				beforeCatalog, afterCatalog := catalog, outputCatalog
+				if contextIndex > 0 {
+					candidateCount := 0
+					for _, downstream := range req.DownstreamModules {
+						importsTarget, inspectErr := downstreamModuleImportsTarget(downstream, catalog.ModulePath, target)
+						if inspectErr != nil {
+							return nil, fmt.Errorf("cannot inspect downstream module %s for %s/%s: %s", downstream.ModulePath, target.GOOS, target.GOARCH, inspectErr.Error())
+						}
+						if importsTarget {
+							candidateCount++
+						}
+					}
+					if candidateCount == 0 {
+						continue
+					}
+					targetFiles, selectErr := selectGoBuildFiles(req.Files, target)
+					if selectErr != nil {
+						continue
+					}
+					targetSelected := false
+					for _, file := range targetFiles {
+						if file.Path == catalog.SelectedPath {
+							targetSelected = true
+							break
+						}
+					}
+					if !targetSelected {
+						continue
+					}
+					alternateRequest := req
+					alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = target.GOOS, target.GOARCH
+					alternateCatalog, buildErr := buildProjectModuleCatalog(alternateRequest)
+					if buildErr != nil {
+						return nil, fmt.Errorf("cannot type-check original target module under %s/%s: %s", target.GOOS, target.GOARCH, buildErr.Error())
+					}
+					defer alternateCatalog.close()
+					alternateOutputRequest := alternateRequest
+					alternateOutputRequest.Files = outputFiles
+					alternateOutputRequest.Source = outputsByPath[catalog.SelectedPath]
+					if alternateOutputRequest.Source == "" {
+						alternateOutputRequest.Source = filesByPath[catalog.SelectedPath].Text
+					}
+					alternateOutputRequest.ExpectedHash, alternateOutputRequest.SourceSetHash = "", ""
+					alternateOutputCatalog, outputBuildErr := buildProjectModuleCatalog(alternateOutputRequest)
+					if outputBuildErr != nil {
+						return nil, fmt.Errorf("Go module rejected renamed output under %s/%s: %s", target.GOOS, target.GOARCH, outputBuildErr.Error())
+					}
+					defer alternateOutputCatalog.close()
+					alternateContracts, contractErr := moduleInterfaceContracts(alternateCatalog)
+					if contractErr != nil || !sameModuleInterfaceContracts(alternateContracts, alternateOutputCatalog) {
+						return nil, fmt.Errorf("Go rename would change a module or imported interface implementation contract under %s/%s", target.GOOS, target.GOARCH)
+					}
+					beforeCatalog, afterCatalog = alternateCatalog, alternateOutputCatalog
 				}
-				if !importsTarget {
-					continue
+				checkedForContext := false
+				for _, downstream := range req.DownstreamModules {
+					if contextIndex > 0 {
+						importsTarget, inspectErr := downstreamModuleImportsTarget(downstream, catalog.ModulePath, target)
+						if inspectErr != nil {
+							return nil, fmt.Errorf("cannot inspect downstream module %s for %s/%s: %s", downstream.ModulePath, target.GOOS, target.GOARCH, inspectErr.Error())
+						}
+						if !importsTarget {
+							continue
+						}
+					}
+					importsTarget, checkErr := checkDownstreamModuleCompatibility(beforeCatalog, downstream, target)
+					if checkErr != nil {
+						return nil, fmt.Errorf("cannot verify downstream compatibility for %s against original module under %s/%s: %s", downstream.ModulePath, target.GOOS, target.GOARCH, checkErr.Error())
+					}
+					if !importsTarget {
+						continue
+					}
+					checkedForContext = true
+					checkedModules[downstream.ModulePath] = true
+					if _, checkErr := checkDownstreamModuleCompatibility(afterCatalog, downstream, target); checkErr != nil {
+						return nil, fmt.Errorf("Go rename breaks downstream module %s or leaves it untype-checkable under %s/%s: %s", downstream.ModulePath, target.GOOS, target.GOARCH, checkErr.Error())
+					}
 				}
-				checkedModules++
-				if _, checkErr := checkDownstreamModuleCompatibility(outputCatalog, downstream, buildContext); checkErr != nil {
-					return nil, fmt.Errorf("Go rename breaks downstream module %s or leaves it untype-checkable: %s", downstream.ModulePath, checkErr.Error())
+				if checkedForContext {
+					checkedContexts = append(checkedContexts, map[string]any{"goos": target.GOOS, "goarch": target.GOARCH, "build_tags": append([]string{}, target.Tags...)})
 				}
 			}
-			if checkedModules > 0 {
+			if len(checkedModules) > 0 {
 				status := "checked"
 				if !req.DownstreamModulesComplete {
 					status = "partial"
 				}
-				downstreamCompatibility = map[string]any{"status": status, "checked_modules": checkedModules, "build_goos": buildContext.GOOS, "build_goarch": buildContext.GOARCH}
+				downstreamCompatibility = map[string]any{"status": status, "checked_modules": len(checkedModules), "build_goos": buildContext.GOOS, "build_goarch": buildContext.GOARCH, "checked_build_contexts": checkedContexts}
 			} else {
 				if req.DownstreamModulesComplete {
 					downstreamCompatibility["status"] = "no_consumers"

@@ -382,7 +382,13 @@ interface GoProjectRenameResult extends SafeRenameResult {
   inventoryScopeSha256?: string
   outputInventoryScopeSha256?: string
   scope: 'project' | 'module'
-  downstreamCompatibility?: { status: 'not_required' | 'not_supplied' | 'no_consumers' | 'incomplete' | 'partial' | 'checked'; checkedModules: number; buildGOOS?: string; buildGOARCH?: string }
+  downstreamCompatibility?: {
+    status: 'not_required' | 'not_supplied' | 'no_consumers' | 'incomplete' | 'partial' | 'checked'
+    checkedModules: number
+    buildGOOS?: string
+    buildGOARCH?: string
+    checkedBuildContexts?: Array<{ goos: string; goarch: string; buildTags: string[] }>
+  }
   projectFiles: Array<{ relativePath: string; sourceCode: string; inputSha256: string; outputSha256: string; edits: Array<{ start: number; end: number; oldText: string; newText: string }> }>
 }
 
@@ -809,8 +815,18 @@ async function applyGoProjectRenameBindings(
   const rawDownstreamCompatibility = plainObject(payload?.downstream_compatibility)
   const downstreamStatus = rawDownstreamCompatibility.status
   const downstreamCheckedModules = rawDownstreamCompatibility.checked_modules
+  const checkedBuildContexts = (Array.isArray(rawDownstreamCompatibility.checked_build_contexts) ? rawDownstreamCompatibility.checked_build_contexts : [])
+    .map(plainObject)
+    .map((context) => ({
+      goos: typeof context.goos === 'string' ? context.goos : '',
+      goarch: typeof context.goarch === 'string' ? context.goarch : '',
+      buildTags: Array.isArray(context.build_tags) ? context.build_tags.filter((tag): tag is string => typeof tag === 'string') : [],
+      validTags: Array.isArray(context.build_tags) && context.build_tags.every((tag) => typeof tag === 'string'),
+    }))
   const downstreamCompatibilityValid = ['not_required', 'not_supplied', 'no_consumers', 'incomplete', 'partial', 'checked'].includes(String(downstreamStatus))
     && Number.isSafeInteger(downstreamCheckedModules) && Number(downstreamCheckedModules) >= 0
+    && checkedBuildContexts.every((context) => /^[a-z0-9]+$/.test(context.goos) && /^[a-z0-9]+$/.test(context.goarch) && context.validTags)
+    && (!['checked', 'partial'].includes(String(downstreamStatus)) || checkedBuildContexts.length > 0)
   if (renameScope === 'module' && !response.ok && typeof payload?.error === 'string'
       && (payload.error.startsWith('Go rename breaks downstream module') || payload.error.startsWith('cannot verify downstream compatibility'))) {
     throw new GoModuleCompatibilityError(payload.error)
@@ -901,6 +917,7 @@ async function applyGoProjectRenameBindings(
       checkedModules: Number(downstreamCheckedModules),
       ...(typeof rawDownstreamCompatibility.build_goos === 'string' ? { buildGOOS: rawDownstreamCompatibility.build_goos } : {}),
       ...(typeof rawDownstreamCompatibility.build_goarch === 'string' ? { buildGOARCH: rawDownstreamCompatibility.build_goarch } : {}),
+      ...(checkedBuildContexts.length ? { checkedBuildContexts: checkedBuildContexts.map(({ goos, goarch, buildTags }) => ({ goos, goarch, buildTags })) } : {}),
     } } : {}),
     projectFiles: validatedFiles,
   }
@@ -1914,9 +1931,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       }))
       const validationMethod = `${projectTransform.parserVersion}+go-types-${moduleGo ? 'module' : 'package'}-binding-identity`
       const downstreamCompatibility = projectTransform.downstreamCompatibility
+      const checkedBuildContexts = downstreamCompatibility?.checkedBuildContexts ?? []
+      const checkedContextSummary = checkedBuildContexts.length
+        ? checkedBuildContexts.map((context) => `${context.goos}/${context.goarch}${context.buildTags.length ? ` tags=${context.buildTags.join(',')}` : ''}`).join(', ')
+        : `${downstreamCompatibility?.buildGOOS}/${downstreamCompatibility?.buildGOARCH}`
       const downstreamMessage = !moduleGo ? ''
         : downstreamCompatibility?.status === 'checked'
-          ? ` Go type-checked ${downstreamCompatibility.checkedModules} discovered downstream module(s) against the original and renamed API for ${downstreamCompatibility.buildGOOS}/${downstreamCompatibility.buildGOARCH}; all passed.`
+          ? ` Go type-checked ${downstreamCompatibility.checkedModules} discovered downstream module(s) against the original and renamed API for ${checkedContextSummary}; all passed.`
           : downstreamCompatibility?.status === 'no_consumers'
             ? ' The complete supplied Go source inventory contains no downstream module importing this module.'
             : downstreamCompatibility?.status === 'partial'
