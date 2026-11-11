@@ -112,7 +112,7 @@ Latest evidence-based score change (2026-11-11): **+0.15 points** (34.11% → 34
 
 **Next measurable gate:** Run module-wide proposal/apply through the real Go helper, disposable PostgreSQL, and Chromium; verify stale source, go.mod, and go.sum receipts reject before draft writes, then test an external consumer compatibility fixture. Continue with held-out rename-quality benchmarks and broader semantic propagation.
 
-Refreshed from pushed commit `a9e0129`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `babde4b`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
