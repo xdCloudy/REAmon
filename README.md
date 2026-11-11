@@ -125,7 +125,7 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (34.82% → 34
 
 **Next measurable gate:** Grow held-out receiver-method and import-alias coverage across packages and build contexts, measure false and missed references, and add external-consumer compatibility checks; then extend semantic propagation to another language.
 
-Refreshed from pushed commit `bc94c1b`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `6f7c90b`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
