@@ -264,6 +264,34 @@ func TestProjectMethodRenameRejectsReceiverMethodCollision(t *testing.T) {
 	}
 }
 
+func TestProjectMethodRenameRejectsPromotedMethodCollision(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package sample\ntype base struct{}\nfunc (base) scale() int { return 2 }\ntype worker struct { base }\nfunc (worker) normalize() int { return 1 }\n"},
+		{Path: "pkg/use.go", Source: "package sample\nfunc run() int { return worker{}.normalize() }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var selected binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "normalize" && item.Kind == "method" {
+			selected = item
+			break
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("receiver method was not offered as a binding")
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "scale"}}
+	if _, err := applyProjectRenames(request); err == nil || !strings.Contains(err.Error(), "method") {
+		t.Fatalf("promoted receiver method collision error = %v; want method collision rejection", err)
+	}
+}
+
 func TestProjectMethodRenamePreservesLocalInterfaceContracts(t *testing.T) {
 	files := []projectFile{
 		{Path: "pkg/model.go", Source: "package sample\ntype runner interface { normalize(int) int }\ntype worker struct{}\nfunc (worker) normalize(value int) int { return value + 1 }\n"},
