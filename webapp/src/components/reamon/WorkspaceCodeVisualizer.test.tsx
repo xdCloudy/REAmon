@@ -775,7 +775,7 @@ describe('WorkspaceCodeVisualizer', () => {
     await waitFor(() => expect(suggestButton).toBeEnabled())
     fireEvent.click(suggestButton)
 
-    expect(await screen.findByText(/1 referenced private package symbols eligible for this rename flow, 1 referenced file-scope imports inventoried only, 1 referenced local symbols inventoried only/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 referenced private package symbols eligible for this rename flow, 1 referenced file-scope imports, including explicit aliases with resolved references eligible for rename, 1 referenced local symbols inventoried only/)).toBeInTheDocument()
     const details = await screen.findByText('Inspect up to 4 of 4 inventory entries')
     fireEvent.click(details)
     expect(await screen.findByText(/file file import alias · eligible \(file-import-alias-with-resolved-references\)/)).toBeInTheDocument()
