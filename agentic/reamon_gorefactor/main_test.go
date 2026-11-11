@@ -107,6 +107,28 @@ type projectInventoryRecallBuild struct {
 	ExpectedMemberCount int    `json:"expected_member_count"`
 }
 
+type projectModuleRenameCorpus struct {
+	Version  int                          `json:"version"`
+	Fixtures []projectModuleRenameFixture `json:"fixtures"`
+}
+
+type projectModuleRenameFixture struct {
+	Name                string                     `json:"name"`
+	SourceManifest      string                     `json:"source_manifest"`
+	SourceFixtureName   string                     `json:"source_fixture_name"`
+	SelectedPath        string                     `json:"selected_path"`
+	OldName             string                     `json:"old_name"`
+	NewName             string                     `json:"new_name"`
+	ExpectedReferences  int                        `json:"expected_references"`
+	ExpectedEditsByFile map[string]int             `json:"expected_edits_by_file"`
+	BuildContexts       []projectModuleRenameBuild `json:"build_contexts"`
+}
+
+type projectModuleRenameBuild struct {
+	GOOS   string `json:"goos"`
+	GOARCH string `json:"goarch"`
+}
+
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
 	t.Helper()
 	for _, item := range cat.Bindings {
@@ -388,6 +410,180 @@ func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *
 		t.Fatalf("module source-set hashes = %v -> %v", result["source_set_sha256"], result["output_source_set_sha256"])
 	}
 	assertProjectModuleBehavior(t, outputs, goMod, "renamed")
+}
+
+func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
+	renameManifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_module_rename_holdout_v1.json"))
+	if err != nil {
+		t.Fatalf("read pinned module rename manifest: %v", err)
+	}
+	var renameCorpus projectModuleRenameCorpus
+	if err := json.Unmarshal(renameManifestBytes, &renameCorpus); err != nil {
+		t.Fatalf("parse pinned module rename manifest: %v", err)
+	}
+	if renameCorpus.Version != 1 || len(renameCorpus.Fixtures) != 1 {
+		t.Fatalf("module rename corpus version/fixture count = %d/%d; want 1/1", renameCorpus.Version, len(renameCorpus.Fixtures))
+	}
+	renameFixture := renameCorpus.Fixtures[0]
+	if renameFixture.Name != "gorilla-mux-v1.8.1-exported-NewRoute" || renameFixture.ExpectedReferences < 1 || len(renameFixture.BuildContexts) != 2 {
+		t.Fatalf("pinned module rename fixture = %+v; want two build contexts and a referenced exported method", renameFixture)
+	}
+	sourceManifestBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(renameFixture.SourceManifest)))
+	if err != nil {
+		t.Fatalf("read source fixture manifest: %v", err)
+	}
+	var sourceCorpus projectInventoryRecallCorpus
+	if err := json.Unmarshal(sourceManifestBytes, &sourceCorpus); err != nil {
+		t.Fatalf("parse source fixture manifest: %v", err)
+	}
+	var fixture *projectInventoryRecallFixture
+	for i := range sourceCorpus.Fixtures {
+		if sourceCorpus.Fixtures[i].Name == renameFixture.SourceFixtureName {
+			fixture = &sourceCorpus.Fixtures[i]
+			break
+		}
+	}
+	if fixture == nil || fixture.ModulePath != "github.com/gorilla/mux" || len(fixture.BuildContexts) != len(renameFixture.BuildContexts) {
+		t.Fatalf("pinned source module fixture = %+v; want matching gorilla/mux build contexts", fixture)
+	}
+	sourceBuilds := make(map[string]bool, len(fixture.BuildContexts))
+	for _, build := range fixture.BuildContexts {
+		sourceBuilds[build.GOOS+"/"+build.GOARCH] = true
+	}
+	for _, build := range renameFixture.BuildContexts {
+		if !sourceBuilds[build.GOOS+"/"+build.GOARCH] {
+			t.Fatalf("rename build context %s/%s is not covered by the pinned source corpus", build.GOOS, build.GOARCH)
+		}
+	}
+	goModBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(fixture.GoModFixture)))
+	if err != nil {
+		t.Fatalf("read pinned gorilla/mux go.mod: %v", err)
+	}
+	if hashText(string(goModBytes)) != fixture.GoModSHA256 {
+		t.Fatalf("pinned gorilla/mux go.mod hash changed")
+	}
+	licenseBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_holdout_v1", "gorilla_mux_v1_8_1_LICENSE"))
+	if err != nil {
+		t.Fatalf("read pinned gorilla/mux license: %v", err)
+	}
+	if hashText(string(licenseBytes)) != "0b77fdea862f869ef4f201ac5649bdbd38ccb055c7f6454dffae9e2adb4941c1" {
+		t.Fatal("pinned gorilla/mux license hash changed")
+	}
+	files := make([]projectFile, 0, len(fixture.Files))
+	for _, sourceFile := range fixture.Files {
+		content, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(sourceFile.FixturePath)))
+		if err != nil {
+			t.Fatalf("read pinned gorilla/mux source %s: %v", sourceFile.InventoryPath, err)
+		}
+		if hashText(string(content)) != sourceFile.SHA256 {
+			t.Fatalf("pinned gorilla/mux source hash changed: %s", sourceFile.InventoryPath)
+		}
+		files = append(files, projectFile{Path: sourceFile.InventoryPath, Source: string(content)})
+	}
+
+	var linuxOutputs map[string]string
+	for _, build := range renameFixture.BuildContexts {
+		build := build
+		t.Run(build.GOOS+"/"+build.GOARCH, func(t *testing.T) {
+			request := goProjectRequest(files, renameFixture.SelectedPath)
+			request.Operation = "project_module_bindings"
+			request.ModulePath, request.GoMod, request.GoModHash = fixture.ModulePath, string(goModBytes), fixture.GoModSHA256
+			request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+			catalogResult, err := listProjectModuleBindings(request)
+			if err != nil {
+				t.Fatalf("catalog pinned gorilla/mux module: %v", err)
+			}
+			var selected binding
+			for _, raw := range catalogResult["bindings"].([]map[string]any) {
+				if raw["name"] == renameFixture.OldName && raw["relativePath"] == renameFixture.SelectedPath {
+					selected = binding{ID: raw["id"].(string), Name: renameFixture.OldName, ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported {
+				t.Fatalf("pinned %s binding = %+v; want exported receiver method", renameFixture.OldName, selected)
+			}
+			if selected.ReferenceCount != renameFixture.ExpectedReferences {
+				t.Fatalf("%s %s reference count = %d; want %d", build.GOOS, renameFixture.OldName, selected.ReferenceCount, renameFixture.ExpectedReferences)
+			}
+			t.Logf("pinned %s has %d resolved in-module references", renameFixture.OldName, selected.ReferenceCount)
+
+			request.Operation = "project_module_rename"
+			request.ExpectedHash = catalogResult["source_sha256"].(string)
+			request.SourceSetHash = catalogResult["source_set_sha256"].(string)
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: renameFixture.NewName}}
+			result, err := applyProjectModuleRenames(request)
+			if err != nil {
+				t.Fatalf("rename pinned gorilla/mux method: %v", err)
+			}
+			renamedBindings := result["renamed_bindings"].([]map[string]any)
+			if len(renamedBindings) != 1 || renamedBindings[0]["oldName"] != renameFixture.OldName || renamedBindings[0]["newName"] != renameFixture.NewName || renamedBindings[0]["exported"] != true {
+				t.Fatalf("pinned rename disclosure = %#v; want exported %s -> %s", renamedBindings, renameFixture.OldName, renameFixture.NewName)
+			}
+			outputs := outputsBeforeRename(files)
+			editCounts := make(map[string]int)
+			sourceByPath := filesByPath(files)
+			for _, output := range result["files"].([]map[string]any) {
+				filePath := output["relative_path"].(string)
+				outputs[filePath] = output["source_code"].(string)
+				for _, edit := range output["edits"].([]map[string]any) {
+					start, startOK := edit["start"].(int)
+					end, endOK := edit["end"].(int)
+					if edit["old_text"] != renameFixture.OldName || edit["new_text"] != renameFixture.NewName || !startOK || !endOK || start < 0 || end > len(sourceByPath[filePath]) || sourceByPath[filePath][start:end] != renameFixture.OldName {
+						t.Fatalf("pinned edit for %s = %#v; want exact %s -> %s byte span", filePath, edit, renameFixture.OldName, renameFixture.NewName)
+					}
+					editCounts[filePath]++
+				}
+			}
+			if !reflect.DeepEqual(editCounts, renameFixture.ExpectedEditsByFile) {
+				t.Fatalf("pinned per-file edit counts = %#v; want %#v", editCounts, renameFixture.ExpectedEditsByFile)
+			}
+			if build.GOOS == "linux" {
+				linuxOutputs = outputs
+			}
+		})
+	}
+	if linuxOutputs == nil {
+		t.Fatal("pinned Linux module rename did not produce a measurable result")
+	}
+	assertGorillaModuleBehavior(t, outputsBeforeRename(files), string(goModBytes), renameFixture.OldName, "original")
+	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renameFixture.NewName, "renamed")
+}
+
+func filesByPath(files []projectFile) map[string]string {
+	byPath := make(map[string]string, len(files))
+	for _, file := range files {
+		byPath[file.Path] = file.Source
+	}
+	return byPath
+}
+
+func assertGorillaModuleBehavior(t *testing.T, files map[string]string, goMod, methodName, variant string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatalf("write pinned gorilla/mux %s go.mod: %v", variant, err)
+	}
+	for filePath, source := range files {
+		fullPath := filepath.Join(root, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("create pinned gorilla/mux %s source directory: %v", variant, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write pinned gorilla/mux %s source: %v", variant, err)
+		}
+	}
+	testSource := fmt.Sprintf("package mux\nimport (\"net/http/httptest\"; \"testing\")\nfunc TestHeldOutModuleRenameBehavior(t *testing.T) { router := NewRouter(); router.%s().Path(\"/api/{id:[0-9]+}\").Methods(\"GET\"); match := &RouteMatch{}; if !router.Match(httptest.NewRequest(\"GET\", \"/api/42\", nil), match) || match.Vars[\"id\"] != \"42\" { t.Fatalf(\"route behavior changed: %%+v\", match) } }\n", methodName)
+	if err := os.WriteFile(filepath.Join(root, "module_rename_test.go"), []byte(testSource), 0o600); err != nil {
+		t.Fatalf("write pinned gorilla/mux %s behavior oracle: %v", variant, err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pinned gorilla/mux %s behavior oracle failed: %v\n%s", variant, err, output)
+	}
 }
 
 func TestProjectModuleExportedMethodRenameBreaksDownstreamConsumer(t *testing.T) {

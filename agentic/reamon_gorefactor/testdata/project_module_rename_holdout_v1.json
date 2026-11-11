@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "name": "gorilla-mux-v1.8.1-exported-NewRoute",
+      "source_manifest": "project_inventory_holdout_v1.json",
+      "source_fixture_name": "gorilla-mux-v1.8.1",
+      "selected_path": "mux.go",
+      "old_name": "NewRoute",
+      "new_name": "CreateRoute",
+      "expected_references": 12,
+      "expected_edits_by_file": {
+        "mux.go": 13
+      },
+      "build_contexts": [
+        { "goos": "linux", "goarch": "amd64" },
+        { "goos": "windows", "goarch": "amd64" }
+      ]
+    }
+  ]
+}
