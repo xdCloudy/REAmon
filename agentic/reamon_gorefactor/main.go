@@ -1739,7 +1739,8 @@ func selectGoBuildFiles(files []projectFile, target goBuildContext) ([]projectFi
 			selectedNames[name] = true
 		}
 		if len(selectedNames) == 0 {
-			return nil, fmt.Errorf("Go source directory %s has no files for build target %s/%s", directory, target.GOOS, target.GOARCH)
+			// Go omits platform-only package directories from this target.
+			continue
 		}
 		for _, file := range filesByDirectory[directory] {
 			if selectedNames[path.Base(file.Path)] {

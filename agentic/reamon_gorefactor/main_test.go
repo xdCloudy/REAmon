@@ -1717,11 +1717,13 @@ func TestProjectModuleExportedRenameRejectsCustomTagConsumersAcrossRemainingTarg
 	}
 }
 
-func TestProjectModuleExportedMethodRenameRejectsUnselectedPlatformVariant(t *testing.T) {
+func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
+	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n"
 	files := []projectFile{
-		{Path: "pkg/api_linux.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
-		{Path: "pkg/api_windows.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
+		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\ntype Other struct{}\n"},
+		{Path: "pkg/api_linux.go", Source: "package pkg\nfunc (Worker) Do() int { return 7 }\nfunc linuxUse() int { return Worker{}.Do() }\n"},
+		{Path: "pkg/api_windows.go", Source: "package pkg\nfunc (Worker) Do() int { return 9 }\nfunc windowsUse() int { return Worker{}.Do() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n"},
 	}
 	request := goProjectRequest(files, "pkg/api_linux.go")
 	request.Operation = "project_module_bindings"
@@ -1744,8 +1746,45 @@ func TestProjectModuleExportedMethodRenameRejectsUnselectedPlatformVariant(t *te
 	request.ExpectedHash = bindings["source_sha256"].(string)
 	request.SourceSetHash = bindings["source_set_sha256"].(string)
 	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
-	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "build-specific declaration") || !strings.Contains(err.Error(), "pkg/api_windows.go") {
-		t.Fatalf("platform-specific method rename error = %v; want refusal naming the inactive Windows declaration", err)
+	request.DownstreamModulesComplete = true
+	request.DownstreamModules = []downstreamModuleSnapshot{{
+		ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
+		Files: []projectFile{{
+			Path: "consumer.go", Source: "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+		}},
+	}}
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename with type-checked Linux and Windows method variants: %v", err)
+	}
+	changedFiles, ok := result["files"].([]map[string]any)
+	if !ok {
+		t.Fatalf("platform-variant rename files = %#v; want an edit manifest", result["files"])
+	}
+	changedSources := make(map[string]string, len(changedFiles))
+	for _, file := range changedFiles {
+		changedSources[file["relative_path"].(string)] = file["source_code"].(string)
+	}
+	want := map[string]string{
+		"pkg/api_linux.go":   "package pkg\nfunc (Worker) Serve() int { return 7 }\nfunc linuxUse() int { return Worker{}.Serve() }\n",
+		"pkg/api_windows.go": "package pkg\nfunc (Worker) Serve() int { return 9 }\nfunc windowsUse() int { return Worker{}.Serve() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n",
+	}
+	if len(changedSources) != len(want) {
+		t.Fatalf("platform-variant rename outputs = %#v; want both target-specific method files", changedSources)
+	}
+	for filePath, expected := range want {
+		if changedSources[filePath] != expected {
+			t.Fatalf("renamed %s = %q; want %q", filePath, changedSources[filePath], expected)
+		}
+	}
+	renamed, ok := result["renamed_bindings"].([]map[string]any)
+	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 2 {
+		t.Fatalf("platform-variant method receipt = %#v; want both in-module references", result["renamed_bindings"])
+	}
+	compatibility := result["downstream_compatibility"].(map[string]any)
+	contexts, ok := compatibility["checked_build_contexts"].([]map[string]any)
+	if compatibility["status"] != "checked" || !ok || len(contexts) != 5 {
+		t.Fatalf("platform-variant downstream receipt = %#v; want five checked target contexts", compatibility)
 	}
 }
 
@@ -3378,6 +3417,24 @@ func TestGoBuildFileSelectionRespectsGOARCHFilenameSuffix(t *testing.T) {
 	}
 	if len(selected) != 1 || selected[0].Path != "pkg/dispatch_arm64.go" {
 		t.Fatalf("arm64 source selection = %#v; want only dispatch_arm64.go", selected)
+	}
+}
+
+func TestGoBuildFileSelectionSkipsPackageDirectoriesWithoutTargetFiles(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\n"},
+		{Path: "cmd/run_linux.go", Source: "//go:build linux\n\npackage main\nfunc main() {}\n"},
+	}
+	target, err := normalizeGoBuildContext(request{BuildGOOS: "js", BuildGOARCH: "wasm"})
+	if err != nil {
+		t.Fatalf("resolve js/wasm build context: %v", err)
+	}
+	selected, err := selectGoBuildFiles(files, target)
+	if err != nil {
+		t.Fatalf("select Go module files without a js/wasm command package: %v", err)
+	}
+	if len(selected) != 1 || selected[0].Path != "pkg/api.go" {
+		t.Fatalf("js/wasm source selection = %#v; want the common package and no platform-only command package", selected)
 	}
 }
 

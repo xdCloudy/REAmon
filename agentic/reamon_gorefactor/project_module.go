@@ -34,12 +34,36 @@ type projectModuleCatalog struct {
 }
 
 type inactiveMethodBindingReference struct {
-	Identifier   *ast.Ident
-	Catalog      *projectCatalog
-	Context      goBuildContext
-	MethodName   string
-	PackagePath  string
-	ReceiverName string
+	Identifier    *ast.Ident
+	Catalog       *projectCatalog
+	Context       goBuildContext
+	MethodName    string
+	PackagePath   string
+	ReceiverName  string
+	IsDeclaration bool
+}
+
+func projectModuleFileForBuild(files []projectFile, preferredPath string, context goBuildContext) (projectFile, bool, error) {
+	selected, err := selectGoBuildFiles(files, context)
+	if err != nil {
+		return projectFile{}, false, err
+	}
+	for _, file := range selected {
+		if file.Path == preferredPath {
+			return file, true, nil
+		}
+	}
+	preferredDir := path.Dir(preferredPath)
+	for _, file := range selected {
+		if path.Dir(file.Path) == preferredDir {
+			return file, true, nil
+		}
+	}
+	if len(selected) == 0 {
+		return projectFile{}, false, nil
+	}
+	sort.Slice(selected, func(i, j int) bool { return selected[i].Path < selected[j].Path })
+	return selected[0], true, nil
 }
 
 func buildProjectModuleCatalog(req request) (*projectModuleCatalog, error) {
@@ -371,46 +395,28 @@ func receiverSyntaxName(expression ast.Expr) string {
 	}
 }
 
-func unselectedMethodVariant(catalog *projectModuleCatalog, method *types.Func) (string, error) {
+func methodPackageDirectory(catalog *projectModuleCatalog, method *types.Func) (string, error) {
 	receiver, ok := receiverNamedObject(method)
 	if !ok {
 		return "", fmt.Errorf("the receiver type for method %s could not be resolved", method.Name())
 	}
-	selectedDir := ""
 	for filePath, packageCatalog := range catalog.CatalogByFile {
 		if packageCatalog.Package == method.Pkg() {
-			selectedDir = path.Dir(filePath)
-			break
+			return path.Dir(filePath), nil
 		}
 	}
-	if selectedDir == "" {
-		return "", fmt.Errorf("the source package for method %s could not be resolved", method.Name())
+	return "", fmt.Errorf("the source package for method %s could not be resolved", receiver.Name())
+}
+
+func matchesProjectMethod(candidate, selected *types.Func, receiverName string) bool {
+	if candidate.Name() != selected.Name() || candidate.Pkg().Path() != selected.Pkg().Path() {
+		return false
 	}
-	for _, file := range catalog.Files {
-		if path.Dir(file.Path) != selectedDir || catalog.CatalogByFile[file.Path] != nil {
-			continue
-		}
-		fileSet := token.NewFileSet()
-		parsed, err := parser.ParseFile(fileSet, file.Path, file.Text, parser.AllErrors|parser.ParseComments)
-		if err != nil {
-			return "", fmt.Errorf("cannot inspect inactive Go source %s for platform-specific method variants", file.Path)
-		}
-		if parsed.Name.Name != method.Pkg().Name() {
-			continue
-		}
-		for _, declaration := range parsed.Decls {
-			function, ok := declaration.(*ast.FuncDecl)
-			if !ok || function.Recv == nil || function.Name.Name != method.Name() {
-				continue
-			}
-			for _, field := range function.Recv.List {
-				if receiverSyntaxName(field.Type) == receiver.Name() {
-					return file.Path, nil
-				}
-			}
-		}
+	if candidate.Signature().Recv() == nil {
+		return false
 	}
-	return "", nil
+	receiver, ok := receiverNamedObject(candidate)
+	return ok && receiver.Name() == receiverName
 }
 
 func projectValidationBuildContexts(current goBuildContext) []goBuildContext {
@@ -435,10 +441,14 @@ func projectValidationBuildContexts(current goBuildContext) []goBuildContext {
 	return contexts
 }
 
-func unselectedMethodReferences(req request, catalog *projectModuleCatalog, method *types.Func) ([]inactiveMethodBindingReference, error) {
+func inactiveMethodBindings(req request, catalog *projectModuleCatalog, method *types.Func) ([]inactiveMethodBindingReference, error) {
 	targetReceiver, ok := receiverNamedObject(method)
 	if !ok {
 		return nil, fmt.Errorf("the receiver type for method %s could not be resolved", method.Name())
+	}
+	packageDir, err := methodPackageDirectory(catalog, method)
+	if err != nil {
+		return nil, err
 	}
 	candidates := make(map[string]bool)
 	for _, file := range catalog.Files {
@@ -448,7 +458,19 @@ func unselectedMethodReferences(req request, catalog *projectModuleCatalog, meth
 		fileSet := token.NewFileSet()
 		parsed, err := parser.ParseFile(fileSet, file.Path, file.Text, parser.AllErrors|parser.ParseComments)
 		if err != nil {
-			return nil, fmt.Errorf("cannot inspect inactive Go source %s for method references", file.Path)
+			return nil, fmt.Errorf("cannot inspect inactive Go source %s for method bindings", file.Path)
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Name.Name != method.Name() {
+				continue
+			}
+			for _, field := range function.Recv.List {
+				if receiverSyntaxName(field.Type) == targetReceiver.Name() {
+					candidates[file.Path] = true
+					break
+				}
+			}
 		}
 		ast.Inspect(parsed, func(node ast.Node) bool {
 			selector, ok := node.(*ast.SelectorExpr)
@@ -457,9 +479,6 @@ func unselectedMethodReferences(req request, catalog *projectModuleCatalog, meth
 			}
 			return true
 		})
-	}
-	if len(candidates) == 0 {
-		return nil, nil
 	}
 	current, err := normalizeGoBuildContext(req)
 	if err != nil {
@@ -475,14 +494,11 @@ func unselectedMethodReferences(req request, catalog *projectModuleCatalog, meth
 	for _, target := range targets[1:] {
 		selected, selectErr := selectGoBuildFiles(req.Files, target)
 		if selectErr != nil {
-			continue
+			return nil, fmt.Errorf("cannot select Go source under %s/%s: %s", target.GOOS, target.GOARCH, selectErr.Error())
 		}
 		selectedPaths := make(map[string]bool, len(selected))
 		for _, file := range selected {
 			selectedPaths[file.Path] = true
-		}
-		if !selectedPaths[catalog.SelectedPath] {
-			continue
 		}
 		candidateSelected := false
 		for filePath := range candidates {
@@ -494,36 +510,43 @@ func unselectedMethodReferences(req request, catalog *projectModuleCatalog, meth
 		if !candidateSelected {
 			continue
 		}
+		packageFile, packageAvailable := projectFile{}, false
+		for _, file := range selected {
+			if path.Dir(file.Path) == packageDir {
+				packageFile, packageAvailable = file, true
+				break
+			}
+		}
+		if !packageAvailable {
+			continue
+		}
 		alternateRequest := req
 		alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = target.GOOS, target.GOARCH
+		alternateRequest.SelectedPath, alternateRequest.Source = packageFile.Path, packageFile.Source
+		alternateRequest.ExpectedHash, alternateRequest.SourceSetHash = "", ""
 		alternate, buildErr := buildProjectModuleCatalog(alternateRequest)
 		if buildErr != nil {
 			return nil, fmt.Errorf("cannot type-check inactive Go source under %s/%s: %s", target.GOOS, target.GOARCH, buildErr.Error())
 		}
-		alternate.collectMethodBindings()
-		for _, binding := range alternate.Bindings {
-			candidate, ok := binding.Object.(*types.Func)
-			if !ok || binding.Kind != "method" || candidate.Name() != method.Name() || candidate.Pkg().Path() != method.Pkg().Path() {
-				continue
-			}
-			receiver, ok := receiverNamedObject(candidate)
-			if !ok || receiver.Name() != targetReceiver.Name() {
-				continue
-			}
-			for _, identifier := range binding.Uses {
-				packageCatalog := alternate.IdentifierCatalog[identifier]
-				if packageCatalog == nil {
-					continue
+		matchingMethods := make(map[*types.Func]bool)
+		for _, packageCatalog := range alternate.Catalogs {
+			for _, object := range packageCatalog.Info.Defs {
+				candidate, ok := object.(*types.Func)
+				if ok && matchesProjectMethod(candidate, method, targetReceiver.Name()) {
+					matchingMethods[candidate] = true
 				}
-				position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
-				if candidates[position.Filename] && !currentPaths[position.Filename] {
-					key := fmt.Sprintf("%s/%s/%s\x00%s\x00%d", target.GOOS, target.GOARCH, strings.Join(target.Tags, "\x00"), position.Filename, position.Offset)
-					if !seenReferences[key] {
-						seenReferences[key] = true
-						references = append(references, inactiveMethodBindingReference{
-							Identifier: identifier, Catalog: packageCatalog, Context: target,
-							MethodName: method.Name(), PackagePath: method.Pkg().Path(), ReceiverName: targetReceiver.Name(),
-						})
+			}
+		}
+		for candidate := range matchingMethods {
+			for _, packageCatalog := range alternate.Catalogs {
+				for identifier, object := range packageCatalog.Info.Defs {
+					if object == candidate {
+						appendInactiveMethodBinding(&references, seenReferences, currentPaths, candidates, identifier, packageCatalog, target, method, targetReceiver, true)
+					}
+				}
+				for identifier, object := range packageCatalog.Info.Uses {
+					if object == candidate {
+						appendInactiveMethodBinding(&references, seenReferences, currentPaths, candidates, identifier, packageCatalog, target, method, targetReceiver, false)
 					}
 				}
 			}
@@ -531,6 +554,32 @@ func unselectedMethodReferences(req request, catalog *projectModuleCatalog, meth
 		alternate.close()
 	}
 	return references, nil
+}
+
+func appendInactiveMethodBinding(
+	references *[]inactiveMethodBindingReference,
+	seen map[string]bool,
+	currentPaths, candidates map[string]bool,
+	identifier *ast.Ident,
+	packageCatalog *projectCatalog,
+	target goBuildContext,
+	method *types.Func,
+	receiver *types.TypeName,
+	isDeclaration bool,
+) {
+	position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
+	if currentPaths[position.Filename] || !candidates[position.Filename] {
+		return
+	}
+	key := fmt.Sprintf("%s/%s/%s\x00%s\x00%d", target.GOOS, target.GOARCH, strings.Join(target.Tags, "\x00"), position.Filename, position.Offset)
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	*references = append(*references, inactiveMethodBindingReference{
+		Identifier: identifier, Catalog: packageCatalog, Context: target,
+		MethodName: method.Name(), PackagePath: method.Pkg().Path(), ReceiverName: receiver.Name(), IsDeclaration: isDeclaration,
+	})
 }
 
 func downstreamModuleImportsTarget(downstream downstreamModuleSnapshot, importedModulePath string, build goBuildContext) (bool, error) {
@@ -778,18 +827,11 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		if choice.item.Kind != "method" || !choice.item.Exported {
 			continue
 		}
-		variant, variantErr := unselectedMethodVariant(catalog, choice.item.Object.(*types.Func))
-		if variantErr != nil {
-			return nil, variantErr
+		inactiveBindings, bindingErr := inactiveMethodBindings(req, catalog, choice.item.Object.(*types.Func))
+		if bindingErr != nil {
+			return nil, bindingErr
 		}
-		if variant != "" {
-			return nil, fmt.Errorf("cannot safely rename exported method %s: another build-specific declaration exists in %s", choice.item.Name, variant)
-		}
-		references, referenceErr := unselectedMethodReferences(req, catalog, choice.item.Object.(*types.Func))
-		if referenceErr != nil {
-			return nil, referenceErr
-		}
-		choice.inactive = references
+		choice.inactive = inactiveBindings
 	}
 	methodTargets := make(map[types.Object]map[string]bool)
 	fileAliasTargets := make(map[string]map[string]bool)
@@ -978,22 +1020,17 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 					if candidateCount == 0 {
 						continue
 					}
-					targetFiles, selectErr := selectGoBuildFiles(req.Files, target)
+					targetFile, targetAvailable, selectErr := projectModuleFileForBuild(req.Files, catalog.SelectedPath, target)
 					if selectErr != nil {
-						continue
+						return nil, fmt.Errorf("cannot select original target module under %s/%s: %s", target.GOOS, target.GOARCH, selectErr.Error())
 					}
-					targetSelected := false
-					for _, file := range targetFiles {
-						if file.Path == catalog.SelectedPath {
-							targetSelected = true
-							break
-						}
-					}
-					if !targetSelected {
+					if !targetAvailable {
 						continue
 					}
 					alternateRequest := req
 					alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = target.GOOS, target.GOARCH
+					alternateRequest.SelectedPath, alternateRequest.Source = targetFile.Path, targetFile.Source
+					alternateRequest.ExpectedHash, alternateRequest.SourceSetHash = "", ""
 					alternateCatalog, buildErr := buildProjectModuleCatalog(alternateRequest)
 					if buildErr != nil {
 						return nil, fmt.Errorf("cannot type-check original target module under %s/%s: %s", target.GOOS, target.GOARCH, buildErr.Error())
@@ -1001,9 +1038,9 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 					defer alternateCatalog.close()
 					alternateOutputRequest := alternateRequest
 					alternateOutputRequest.Files = outputFiles
-					alternateOutputRequest.Source = outputsByPath[catalog.SelectedPath]
+					alternateOutputRequest.Source = outputsByPath[alternateRequest.SelectedPath]
 					if alternateOutputRequest.Source == "" {
-						alternateOutputRequest.Source = filesByPath[catalog.SelectedPath].Text
+						alternateOutputRequest.Source = filesByPath[alternateRequest.SelectedPath].Text
 					}
 					alternateOutputRequest.ExpectedHash, alternateOutputRequest.SourceSetHash = "", ""
 					alternateOutputCatalog, outputBuildErr := buildProjectModuleCatalog(alternateOutputRequest)
@@ -1092,6 +1129,11 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		alternateRequest := req
 		alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = buildContext.GOOS, buildContext.GOARCH
 		alternateRequest.BuildTags = append([]string(nil), buildContext.Tags...)
+		packageFile, packageAvailable, selectErr := projectModuleFileForBuild(req.Files, catalog.SelectedPath, buildContext)
+		if selectErr != nil || !packageAvailable {
+			return nil, fmt.Errorf("cannot select module source for inactive reference verification under %s/%s", buildContext.GOOS, buildContext.GOARCH)
+		}
+		alternateRequest.SelectedPath, alternateRequest.Source = packageFile.Path, packageFile.Source
 		alternateRequest.ExpectedHash, alternateRequest.SourceSetHash = "", ""
 		beforeCatalog, beforeErr := buildProjectModuleCatalog(alternateRequest)
 		if beforeErr != nil {
@@ -1099,9 +1141,9 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		}
 		outputRequest := alternateRequest
 		outputRequest.Files = outputFiles
-		outputRequest.Source = outputsByPath[catalog.SelectedPath]
+		outputRequest.Source = outputsByPath[alternateRequest.SelectedPath]
 		if outputRequest.Source == "" {
-			outputRequest.Source = filesByPath[catalog.SelectedPath].Text
+			outputRequest.Source = filesByPath[alternateRequest.SelectedPath].Text
 		}
 		afterCatalog, afterErr := buildProjectModuleCatalog(outputRequest)
 		if afterErr != nil {
@@ -1129,8 +1171,12 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 			originalIdentifier := beforeIdentifiers[position.Filename][position.Offset]
 			outputOffset := offsetAfterEdits(position.Offset, editsByPath[position.Filename])
 			outputIdentifier := afterIdentifiers[position.Filename][outputOffset]
-			originalMethod, originalOK := beforePackage.Info.Uses[originalIdentifier].(*types.Func)
-			outputMethod, outputOK := afterPackage.Info.Uses[outputIdentifier].(*types.Func)
+			originalBindings, outputBindings := beforePackage.Info.Uses, afterPackage.Info.Uses
+			if reference.IsDeclaration {
+				originalBindings, outputBindings = beforePackage.Info.Defs, afterPackage.Info.Defs
+			}
+			originalMethod, originalOK := originalBindings[originalIdentifier].(*types.Func)
+			outputMethod, outputOK := outputBindings[outputIdentifier].(*types.Func)
 			var originalReceiver, outputReceiver *types.TypeName
 			originalReceiverOK, outputReceiverOK := false, false
 			if originalOK {
@@ -1160,6 +1206,9 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		referenceCount := choice.item.ReferenceCount
 		uniqueInactiveReferences := make(map[string]bool)
 		for _, reference := range choice.inactive {
+			if reference.IsDeclaration {
+				continue
+			}
 			position := reference.Catalog.FileSet.PositionFor(reference.Identifier.Pos(), false)
 			key := fmt.Sprintf("%s\x00%d", position.Filename, position.Offset)
 			if !uniqueInactiveReferences[key] {
