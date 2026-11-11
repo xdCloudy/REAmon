@@ -147,7 +147,7 @@ Latest evidence-based score change (2026-11-11): **+0.07 points** (36.05% → 36
 
 **Next measurable gate:** Expand from the six verified contexts to additional GOOS/GOARCH pairs and build-tag combinations with bounded resource use and explicit failed/unavailable outcomes; broaden held-out consumer measurements.
 
-Refreshed from pushed commit `dd8542f`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `f12162c`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
