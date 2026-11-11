@@ -390,6 +390,92 @@ func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *
 	assertProjectModuleBehavior(t, outputs, goMod, "renamed")
 }
 
+func TestProjectModuleExportedMethodRenameBreaksDownstreamConsumer(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n\nreplace example.test/app => ../app\n"
+	consumerSource := "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n"
+	files := []projectFile{{
+		Path:   "pkg/api.go",
+		Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n",
+	}}
+	request := goProjectRequest(files, "pkg/api.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindingsResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+		if raw["name"] == "Do" {
+			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || !selected.Exported {
+		t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
+	}
+	assertDownstreamGoModuleBuild(t, goMod, map[string]string{"pkg/api.go": files[0].Source}, consumerMod, consumerSource, true)
+
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindingsResult["source_sha256"].(string)
+	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename exported method: %v", err)
+	}
+	outputs := make(map[string]string)
+	for _, output := range result["files"].([]map[string]any) {
+		outputs[output["relative_path"].(string)] = output["source_code"].(string)
+	}
+	if len(outputs) != 1 || !strings.Contains(outputs["pkg/api.go"], "func (Worker) Serve()") || !strings.Contains(outputs["pkg/api.go"], "Worker{}.Serve()") {
+		t.Fatalf("renamed module outputs = %#v; want exported Serve declaration and same-module call", outputs)
+	}
+	failedOutput := assertDownstreamGoModuleBuild(t, goMod, outputs, consumerMod, consumerSource, false)
+	if !strings.Contains(failedOutput, "Do") {
+		t.Fatalf("downstream failure = %s; want diagnostic for removed Do method", failedOutput)
+	}
+}
+
+func assertDownstreamGoModuleBuild(t *testing.T, appGoMod string, appFiles map[string]string, consumerGoMod, consumerSource string, wantSuccess bool) string {
+	t.Helper()
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "app")
+	consumerRoot := filepath.Join(root, "consumer")
+	for _, directory := range []string{appRoot, consumerRoot} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatalf("create downstream fixture directory: %v", err)
+		}
+	}
+	writeFixture := func(filePath, source string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+			t.Fatalf("create downstream fixture package: %v", err)
+		}
+		if err := os.WriteFile(filePath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write downstream fixture source: %v", err)
+		}
+	}
+	writeFixture(filepath.Join(appRoot, "go.mod"), appGoMod)
+	for relativePath, source := range appFiles {
+		writeFixture(filepath.Join(appRoot, filepath.FromSlash(relativePath)), source)
+	}
+	writeFixture(filepath.Join(consumerRoot, "go.mod"), consumerGoMod)
+	writeFixture(filepath.Join(consumerRoot, "consumer.go"), consumerSource)
+	command := exec.Command("go", "test", "./...")
+	command.Dir = consumerRoot
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if wantSuccess && err != nil {
+		t.Fatalf("unchanged downstream consumer did not compile against original module: %v\n%s", err, output)
+	}
+	if !wantSuccess && err == nil {
+		t.Fatalf("unchanged downstream consumer unexpectedly compiled after exported API rename:\n%s", output)
+	}
+	return string(output)
+}
+
 func TestProjectModuleMethodRenamePreservesImportedInterfaceContracts(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
 	files := []projectFile{
