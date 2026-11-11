@@ -117,7 +117,7 @@ Latest evidence-based score change (2026-11-11): **+0.07 points** (34.47% → 34
 
 **Next measurable gate:** Expand held-out positive and negative module rename cases across receiver types, interface contracts, reference patterns, and targets; measure false and missed references, then continue downstream consumer checks.
 
-Refreshed from pushed commit `99f9c71`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `1479a6c`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
