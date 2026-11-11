@@ -1516,6 +1516,7 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 		t.Run(target.goos+"/"+target.goarch, func(t *testing.T) {
 			targetRequest := goProjectRequest(files, "pkg/api.go")
 			targetRequest.BuildGOOS, targetRequest.BuildGOARCH = target.goos, target.goarch
+			targetRequest.BuildTags = []string{"downstream_extra"}
 			targetRequest.Operation = "project_module_bindings"
 			targetRequest.ModulePath, targetRequest.GoMod, targetRequest.GoModHash = "example.test/app", goMod, hashText(goMod)
 			bindingsResult, err := listProjectModuleBindings(targetRequest)
@@ -1560,6 +1561,9 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 			seen := make(map[string]bool, len(contexts))
 			for _, context := range contexts {
 				seen[context["goos"].(string)+"/"+context["goarch"].(string)] = true
+				if !reflect.DeepEqual(context["build_tags"], []string{"downstream_extra"}) {
+					t.Fatalf("downstream checked build tags = %#v; want the requested custom tag", context["build_tags"])
+				}
 			}
 			if len(seen) != 3 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] {
 				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64", contexts)
@@ -1606,6 +1610,48 @@ func TestProjectModuleExportedRenameChecksDownstreamAlternateBuildContexts(t *te
 	}}
 	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "Go rename breaks downstream module example.test/consumer") || !strings.Contains(err.Error(), "windows/amd64") || !strings.Contains(err.Error(), "Do") {
 		t.Fatalf("alternate-context downstream check error = %v; want rejection identifying the Windows Do reference", err)
+	}
+}
+
+func TestProjectModuleExportedRenameChecksDownstreamCustomTagAcrossTargets(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n"
+	files := []projectFile{{
+		Path:   "pkg/api.go",
+		Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n",
+	}}
+	request := goProjectRequest(files, "pkg/api.go")
+	request.BuildTags = []string{"downstream_extra"}
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindings, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindings["bindings"].([]map[string]any) {
+		if raw["name"] == "Do" && raw["kind"] == "method" {
+			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || !selected.Exported {
+		t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindings["source_sha256"].(string)
+	request.SourceSetHash = bindings["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+	request.DownstreamModulesComplete = true
+	request.DownstreamModules = []downstreamModuleSnapshot{{
+		ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
+		Files: []projectFile{
+			{Path: "consumer.go", Source: "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n"},
+			{Path: "consumer_windows_extra.go", Source: "//go:build windows && downstream_extra\n\npackage consumer\nimport \"example.test/app/pkg\"\nfunc UseTagged() int { return pkg.Worker{}.Do() }\n"},
+		},
+	}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "Go rename breaks downstream module example.test/consumer") || !strings.Contains(err.Error(), "windows/amd64") || !strings.Contains(err.Error(), "Do") {
+		t.Fatalf("custom-tag downstream compatibility check error = %v; want a Windows rejection identifying the Do reference", err)
 	}
 }
 
