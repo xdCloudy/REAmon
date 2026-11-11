@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="34.11" max="100">34.11%</progress> <strong>34.11%</strong> — weighted estimate **34.11%**.
+<progress value="34.26" max="100">34.26%</progress> <strong>34.26%</strong> — weighted estimate **34.26%**.
 
-Latest evidence-based score change (2026-11-11): **+0.00 points** (34.11% → 34.11%). No weighted point was added. Three focused Docker tests and the full Go helper suite pass for an unintegrated module-snapshot helper prototype; route/UI integration and end-to-end stale module receipt acceptance remain open.
+Latest evidence-based score change (2026-11-11): **+0.15 points** (34.11% → 34.26%). Verified module-wide Go method route/UI integration adds 0.15 weighted points (34.11% to 34.26%): project-wide semantic renaming +1 completion point and cross-file propagation +1. Focused Docker API tests pass 7/7, route/UI tests pass 46/46, webapp TypeScript type-check passes, and the complete Go helper suite passes under Go 1.25. Module scope has not yet passed real-helper PostgreSQL/browser acceptance or external-consumer compatibility checks.
 
 **Work completed (2026-11-11):**
 
@@ -106,12 +106,13 @@ Latest evidence-based score change (2026-11-11): **+0.00 points** (34.11% → 34
 - A method-specific stale-source regression now changes a type-correct sibling file after catalog creation and proves apply rejects the old source-set receipt; the complete Go helper package suite passes.
 - An embedded-field collision fixture now confirms that a promoted receiver method blocks a conflicting rename; the focused regression and full Go helper package suite pass.
 - A module-snapshot Go helper prototype now catalogs exported receiver methods across a supplied module source set, applies exact declaration/selector/method-expression edits across packages, re-type-checks output, and rejects a rename that breaks imported io.Writer. Three focused Docker tests pass, covering behavior before/after, exact per-file byte edits, and stale source-set rejection; the full Go helper package suite passes. This is not wired into the web route or UI, so it receives no weighted credit yet.
+- Module-wide Go receiver-method renaming is integrated through the safe-renames API and visualizer. Proposals bind the complete accepted source set plus verified go.mod/go.sum and helper inventory scope; apply reloads those receipts, type-checks whole-module edits, and saves every changed file as a separate draft. Exported method suggestions are restricted to explicit module scope and preserve exported capitalization. Focused Docker API tests pass 7/7, safe-renames route plus visualizer tests pass 46/46, TypeScript build type-check passes, and the Go helper package suite passes under Go 1.25. The route helper is fixture-controlled in these tests; real-helper PostgreSQL/Chromium acceptance and compatibility for consumers outside the module remain unverified.
 
-**Score decision:** The weighted estimate remains 34.11% (0.00-point change). The helper-level module-snapshot prototype now has three focused Docker tests, including stale source-set rejection, and the full Go helper package suite passes. It is not integrated into the web route/UI, so it is not yet a complete user-reachable capability and receives no weighted credit. The prior receiver-method, promoted-method collision, and stale-source regressions remain documented; safety-only evidence does not add weighted completion.
+**Score decision:** The verified integration raises the weighted estimate from 34.11% to 34.26% (+0.15 points): project-wide semantic renaming moves 37% to 38%, and cross-file propagation moves 13% to 14%. Credit covers the module-scoped, exported Go receiver-method path with focused API, route, UI, helper-suite, and TypeScript evidence. Real-helper PostgreSQL/browser acceptance for module scope, outside-consumer compatibility, broader name quality, and other-language propagation remain open.
 
-**Next measurable gate:** Integrate module snapshot catalog/apply operations into the existing Go rename route and review UI. Bind proposals to every source hash and build-context receipt, reject stale module snapshots, test exported API and imported-interface compatibility, then run focused route/UI checks and the full Go helper package suite before recalculating weighted progress.
+**Next measurable gate:** Run module-wide proposal/apply through the real Go helper, disposable PostgreSQL, and Chromium; verify stale source, go.mod, and go.sum receipts reject before draft writes, then test an external consumer compatibility fixture. Continue with held-out rename-quality benchmarks and broader semantic propagation.
 
-Refreshed from pushed commit `584826a`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `a9e0129`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
