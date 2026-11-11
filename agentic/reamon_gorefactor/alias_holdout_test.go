@@ -167,8 +167,102 @@ func TestProjectModuleImportAliasPinnedXSysWindowsV060(t *testing.T) {
 			}
 			t.Logf("held-out explicit import-alias census: declarations TP=%d FP=0 FN=0; references TP=%d FP=0 FN=0", declarationTP, referenceTP)
 			assertXSysWindowsBuild(t, files, string(goModBytes), build, "renamed")
+
+			t.Run("coordinated_batch", func(t *testing.T) {
+				batchFiles := append([]projectFile(nil), baseFiles...)
+				assertXSysAliasBatch(t, batchFiles, string(goModBytes), corpus, build)
+			})
 		})
 	}
+}
+
+func assertXSysAliasBatch(t *testing.T, files []projectFile, goMod string, corpus projectImportAliasHoldoutCorpus, build projectModuleRenameBuild) {
+	t.Helper()
+	request := goProjectRequest(files, corpus.Aliases[0].SelectedPath)
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = corpus.ModulePath, goMod, corpus.GoModSHA256
+	request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+	bindingsResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("catalog x/sys aliases for coordinated batch: %v", err)
+	}
+	independentAliases := independentExplicitImportAliasReferences(t, files)
+	selectedIDs := make(map[string]string, len(corpus.Aliases))
+	aliasCount := 0
+	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+		if raw["kind"] != "file import alias" {
+			continue
+		}
+		aliasCount++
+		path, name := raw["relativePath"].(string), raw["name"].(string)
+		expectedReferences, exists := independentAliases[path+"\x00"+name]
+		if !exists || raw["scopeType"] != "file" || raw["referenceCount"].(int) != expectedReferences {
+			t.Fatalf("coordinated x/sys alias binding = %#v; independent AST census = %#v", raw, independentAliases)
+		}
+		selectedIDs[path] = raw["id"].(string)
+	}
+	if aliasCount != len(independentAliases) || aliasCount != len(corpus.Aliases) {
+		t.Fatalf("coordinated x/sys alias count = %d; independent aliases = %#v", aliasCount, independentAliases)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindingsResult["source_sha256"].(string)
+	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+	for _, expected := range corpus.Aliases {
+		if expected.Name != "errorspkg" || expected.ExpectedEdits != expected.ExpectedReferences+1 || selectedIDs[expected.SelectedPath] == "" {
+			t.Fatalf("unexpected x/sys alias batch expectation: %+v", expected)
+		}
+		request.Renames = append(request.Renames, renameSelection{ID: selectedIDs[expected.SelectedPath], NewName: "errorslib"})
+	}
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename x/sys aliases in one module batch: %v", err)
+	}
+	outputs := make(map[string]string)
+	editsByFile := make(map[string]int)
+	totalEdits := 0
+	for _, file := range result["files"].([]map[string]any) {
+		filePath := file["relative_path"].(string)
+		outputs[filePath] = file["source_code"].(string)
+		var source string
+		for _, original := range files {
+			if original.Path == filePath {
+				source = original.Source
+				break
+			}
+		}
+		rebuilt := []byte(source)
+		edits := file["edits"].([]map[string]any)
+		sort.Slice(edits, func(i, j int) bool { return edits[i]["start"].(int) > edits[j]["start"].(int) })
+		for _, edit := range edits {
+			start, end := edit["start"].(int), edit["end"].(int)
+			if edit["old_text"] != "errorspkg" || edit["new_text"] != "errorslib" ||
+				start < 0 || end < start || end > len(rebuilt) || string(rebuilt[start:end]) != "errorspkg" {
+				t.Fatalf("coordinated x/sys alias byte edit = %#v; source does not match the expected alias", edit)
+			}
+			rebuilt = append(rebuilt[:start], append([]byte("errorslib"), rebuilt[end:]...)...)
+			editsByFile[filePath]++
+			totalEdits++
+		}
+		if string(rebuilt) != file["source_code"].(string) {
+			t.Fatalf("coordinated x/sys output for %s differs from reported byte spans", filePath)
+		}
+	}
+	if len(outputs) != len(corpus.Aliases) || totalEdits != 5 {
+		t.Fatalf("coordinated x/sys batch outputs/edits = %d/%d; want 2 files and 5 edits", len(outputs), totalEdits)
+	}
+	for _, expected := range corpus.Aliases {
+		if editsByFile[expected.SelectedPath] != expected.ExpectedEdits || outputs[expected.SelectedPath] == "" {
+			t.Fatalf("coordinated x/sys edits for %s = %d; want %d", expected.SelectedPath, editsByFile[expected.SelectedPath], expected.ExpectedEdits)
+		}
+		for index := range files {
+			if files[index].Path == expected.SelectedPath {
+				files[index].Source = outputs[expected.SelectedPath]
+				files[index].ExpectedHash = hashText(files[index].Source)
+			}
+		}
+	}
+	assertXSysWindowsBuild(t, files, goMod, build, "coordinated batch")
+	t.Logf("x/sys coordinated alias batch: declarations=%d references=3 edits=%d across %d files", len(corpus.Aliases), totalEdits, len(outputs))
 }
 
 func independentExplicitImportAliasReferences(t *testing.T, files []projectFile) map[string]int {
