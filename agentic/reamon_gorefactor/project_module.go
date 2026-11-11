@@ -404,6 +404,104 @@ func unselectedMethodVariant(catalog *projectModuleCatalog, method *types.Func) 
 	return "", nil
 }
 
+func unselectedMethodReference(req request, catalog *projectModuleCatalog, method *types.Func) (string, error) {
+	targetReceiver, ok := receiverNamedObject(method)
+	if !ok {
+		return "", fmt.Errorf("the receiver type for method %s could not be resolved", method.Name())
+	}
+	candidates := make(map[string]bool)
+	for _, file := range catalog.Files {
+		if catalog.CatalogByFile[file.Path] != nil {
+			continue
+		}
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, file.Path, file.Text, parser.AllErrors|parser.ParseComments)
+		if err != nil {
+			return "", fmt.Errorf("cannot inspect inactive Go source %s for method references", file.Path)
+		}
+		ast.Inspect(parsed, func(node ast.Node) bool {
+			selector, ok := node.(*ast.SelectorExpr)
+			if ok && selector.Sel.Name == method.Name() {
+				candidates[file.Path] = true
+			}
+			return true
+		})
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	current, err := normalizeGoBuildContext(req)
+	if err != nil {
+		return "", err
+	}
+	targets := []goBuildContext{current}
+	for _, target := range [][2]string{{"linux", "amd64"}, {"windows", "amd64"}, {"linux", "arm64"}, {"windows", "arm64"}, {"js", "wasm"}} {
+		context := current
+		context.GOOS, context.GOARCH = target[0], target[1]
+		if context.GOOS == current.GOOS && context.GOARCH == current.GOARCH {
+			continue
+		}
+		targets = append(targets, context)
+	}
+	currentPaths := make(map[string]bool, len(catalog.CatalogByFile))
+	for filePath := range catalog.CatalogByFile {
+		currentPaths[filePath] = true
+	}
+	for _, target := range targets[1:] {
+		selected, selectErr := selectGoBuildFiles(req.Files, target)
+		if selectErr != nil {
+			continue
+		}
+		selectedPaths := make(map[string]bool, len(selected))
+		for _, file := range selected {
+			selectedPaths[file.Path] = true
+		}
+		if !selectedPaths[catalog.SelectedPath] {
+			continue
+		}
+		candidateSelected := false
+		for filePath := range candidates {
+			if selectedPaths[filePath] && !currentPaths[filePath] {
+				candidateSelected = true
+				break
+			}
+		}
+		if !candidateSelected {
+			continue
+		}
+		alternateRequest := req
+		alternateRequest.BuildGOOS, alternateRequest.BuildGOARCH = target.GOOS, target.GOARCH
+		alternate, buildErr := buildProjectModuleCatalog(alternateRequest)
+		if buildErr != nil {
+			return "", fmt.Errorf("cannot type-check inactive Go source under %s/%s: %s", target.GOOS, target.GOARCH, buildErr.Error())
+		}
+		alternate.collectMethodBindings()
+		for _, binding := range alternate.Bindings {
+			candidate, ok := binding.Object.(*types.Func)
+			if !ok || binding.Kind != "method" || candidate.Name() != method.Name() || candidate.Pkg().Path() != method.Pkg().Path() {
+				continue
+			}
+			receiver, ok := receiverNamedObject(candidate)
+			if !ok || receiver.Name() != targetReceiver.Name() {
+				continue
+			}
+			for _, identifier := range binding.Uses {
+				packageCatalog := alternate.IdentifierCatalog[identifier]
+				if packageCatalog == nil {
+					continue
+				}
+				position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
+				if candidates[position.Filename] && !currentPaths[position.Filename] {
+					alternate.close()
+					return position.Filename, nil
+				}
+			}
+		}
+		alternate.close()
+	}
+	return "", nil
+}
+
 func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream downstreamModuleSnapshot, build goBuildContext) (bool, error) {
 	if downstream.ModulePath == "" || !safeGoModuleImportPath(downstream.ModulePath) || downstream.ModulePath == app.ModulePath {
 		return false, fmt.Errorf("downstream Go module identity is invalid")
@@ -609,6 +707,13 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		}
 		if variant != "" {
 			return nil, fmt.Errorf("cannot safely rename exported method %s: another build-specific declaration exists in %s", choice.item.Name, variant)
+		}
+		reference, referenceErr := unselectedMethodReference(req, catalog, choice.item.Object.(*types.Func))
+		if referenceErr != nil {
+			return nil, referenceErr
+		}
+		if reference != "" {
+			return nil, fmt.Errorf("cannot safely rename exported method %s: an inactive build-specific reference exists in %s", choice.item.Name, reference)
 		}
 	}
 	methodTargets := make(map[types.Object]map[string]bool)

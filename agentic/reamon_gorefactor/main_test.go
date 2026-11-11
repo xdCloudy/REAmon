@@ -1589,6 +1589,63 @@ func TestProjectModuleExportedMethodRenameRejectsUnselectedPlatformVariant(t *te
 	}
 }
 
+func TestProjectModuleExportedMethodRenameRejectsInactiveTargetReference(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
+		{Path: "cmd/use_linux.go", Source: "package cmd\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n"},
+		{Path: "cmd/use_windows.go", Source: "package cmd\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n"},
+		{Path: "cmd/unrelated_windows.go", Source: "package cmd\ntype Other struct{}\nfunc (Other) Do() int { return 9 }\nfunc unrelated() int { return Other{}.Do() }\n"},
+	}
+	request := goProjectRequest(files, "pkg/api.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindings, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list Linux module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindings["bindings"].([]map[string]any) {
+		if raw["name"] == "Do" && raw["kind"] == "method" {
+			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || !selected.Exported {
+		t.Fatalf("cross-package method binding = %+v; want exported Do method", selected)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindings["source_sha256"].(string)
+	request.SourceSetHash = bindings["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "inactive build-specific reference") || !strings.Contains(err.Error(), "cmd/use_windows.go") {
+		t.Fatalf("inactive method reference error = %v; want refusal naming the Windows consumer", err)
+	}
+
+	safeFiles := []projectFile{files[0], files[1], files[3]}
+	safeRequest := goProjectRequest(safeFiles, "pkg/api.go")
+	safeRequest.Operation = "project_module_bindings"
+	safeRequest.ModulePath, safeRequest.GoMod, safeRequest.GoModHash = "example.test/app", goMod, hashText(goMod)
+	safeBindings, err := listProjectModuleBindings(safeRequest)
+	if err != nil {
+		t.Fatalf("list module bindings with unrelated Windows method: %v", err)
+	}
+	for _, raw := range safeBindings["bindings"].([]map[string]any) {
+		if raw["name"] != "Do" || raw["kind"] != "method" {
+			continue
+		}
+		safeRequest.Operation = "project_module_rename"
+		safeRequest.ExpectedHash = safeBindings["source_sha256"].(string)
+		safeRequest.SourceSetHash = safeBindings["source_set_sha256"].(string)
+		safeRequest.Renames = []renameSelection{{ID: raw["id"].(string), NewName: "Serve"}}
+		if _, err := applyProjectModuleRenames(safeRequest); err != nil {
+			t.Fatalf("unrelated Windows Do method blocked the Worker rename: %v", err)
+		}
+		return
+	}
+	t.Fatal("module bindings did not include the exported Worker.Do method")
+}
+
 func assertDownstreamGoModuleBuild(t *testing.T, appGoMod string, appFiles map[string]string, consumerGoMod, consumerSource string, wantSuccess bool) string {
 	t.Helper()
 	root := t.TempDir()
