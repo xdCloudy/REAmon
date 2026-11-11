@@ -26,3 +26,4 @@ agentic/reamon_gorefactor/testdata/project_alias_holdout_controls/** text eol=lf
 tooling/benchmarks/**/runs/**/*.java text eol=lf
 tooling/benchmarks/**/runs/**/*.tsv text eol=lf
 tooling/benchmarks/**/runs/**/*.txt text eol=lf
+agentic/reamon_gorefactor/testdata/upstream_jsonparser_v1_1_1/** text eol=lf

@@ -158,7 +158,7 @@ func TestProjectModuleImportAliasPinnedPkgErrorsV091(t *testing.T) {
 
 func assertPkgErrorsBuild(t *testing.T, files []projectFile, goMod string, build projectModuleRenameBuild) {
 	t.Helper()
-	root := writePkgErrorsSource(t, files, goMod)
+	root := writeGoModuleSource(t, files, goMod)
 	command := exec.Command("go", "build", "./...")
 	command.Dir = root
 	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off", "GOOS="+build.GOOS, "GOARCH="+build.GOARCH, "CGO_ENABLED=0")
@@ -169,7 +169,7 @@ func assertPkgErrorsBuild(t *testing.T, files []projectFile, goMod string, build
 
 func assertPkgErrorsBehavior(t *testing.T, files []projectFile, goMod, variant string) {
 	t.Helper()
-	root := writePkgErrorsSource(t, files, goMod)
+	root := writeGoModuleSource(t, files, goMod)
 	testSource := `package errors
 import (
   "testing"
@@ -199,7 +199,7 @@ func TestAliasHoldoutBehavior(t *testing.T) {
 	}
 }
 
-func writePkgErrorsSource(t *testing.T, files []projectFile, goMod string) string {
+func writeGoModuleSource(t *testing.T, files []projectFile, goMod string) string {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {

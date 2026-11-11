@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "module_path": "github.com/buger/jsonparser",
+  "source_commit": "df3ea76ece10095374fd1c9a22a4fb85a44efc42",
+  "module_sum": "h1:2PnMjfWD7wBILjqQbt530v576A/cAbQvEW9gGIpYMUs=",
+  "go_mod_fixture_path": "upstream_jsonparser_v1_1_1/go.mod",
+  "go_mod_sha256": "587c18b3f32f8b7dcd3fccc82a5f5520ea624c037c85d597b2eb5d958063a1b5",
+  "license_fixture_path": "upstream_jsonparser_v1_1_1/LICENSE",
+  "license_sha256": "632b59709152e1b5bfd3e2794848bcd2f4c70e3e175646726dbf53439ea1dbe1",
+  "files": [
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/bytes.go",
+      "inventory_path": "bytes.go",
+      "sha256": "dc31aca3ce85efae8c4cc1ebce9f21f5c8cc82b25654bb384c9b6a674b196d97"
+    },
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/bytes_safe.go",
+      "inventory_path": "bytes_safe.go",
+      "sha256": "8d96c89cb327029256d2c62f260166f77939df6695fe04944305b89a4bcaaa83"
+    },
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/bytes_unsafe.go",
+      "inventory_path": "bytes_unsafe.go",
+      "sha256": "5bf19d20083ae54b4f3e5578d522f3dc0430697de3ef56248de45a18a4a26529"
+    },
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/escape.go",
+      "inventory_path": "escape.go",
+      "sha256": "f9e4c1af9a1f7242f2e1b1a2535637836a4c440dda61fcd2217c316e9e2cca84"
+    },
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/fuzz.go",
+      "inventory_path": "fuzz.go",
+      "sha256": "77a60583e86c10a1f55f8da840d531eb7f0b295e7c7d52859a3ef2a833fa920f"
+    },
+    {
+      "fixture_path": "upstream_jsonparser_v1_1_1/parser.go",
+      "inventory_path": "parser.go",
+      "sha256": "af71a1f9f9d88164d6ad85b9b7c2a6bcba94842934921277e591e090e306149b"
+    }
+  ],
+  "build_contexts": [
+    { "goos": "linux", "goarch": "amd64", "tags": [] },
+    { "goos": "windows", "goarch": "amd64", "tags": [] },
+    { "goos": "linux", "goarch": "arm64", "tags": [] },
+    { "goos": "linux", "goarch": "amd64", "tags": ["appengine"] }
+  ],
+  "alias_name": "bio",
+  "selected_path": "bytes.go",
+  "expected_references": 1
+}
