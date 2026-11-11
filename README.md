@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="35.06" max="100">35.06%</progress> <strong>35.06%</strong> — weighted estimate **35.06%**.
+<progress value="35.14" max="100">35.14%</progress> <strong>35.14%</strong> — weighted estimate **35.14%**.
 
-Latest evidence-based score change (2026-11-11): **+0.08 points** (34.98% → 35.06%). The Go module safe-rename path now supports project source files up to 2 MiB under the existing 8 MiB aggregate cap. On SHA-256-pinned golang.org/x/sys v0.6.0 Windows/amd64 source, an independent AST census matches both explicit errorspkg alias declarations and all three references with zero observed false or missed entries. The helper reconstructs exactly the reported byte-span edits and the complete package builds before and after both aliases are renamed. The full Docker Go refactor package suite passes under Go 1.25 (55.935s). One partial semantic-renaming acceptance point is added: 40% to 41%, weighted progress 34.98% to 35.06%. This is one upstream module and one build context, not broad alias accuracy.
+Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35.14%). One partial point for coordinated explicit Go import-alias batches across module files is supported by the full Docker Go refactor suite, a multi-package behavior oracle, route and visualizer regression tests, TypeScript type-check, and targeted ESLint. This is bounded fixture evidence; live database acceptance, broad held-out accuracy, and downstream-consumer compatibility remain open.
 
 **Work completed (2026-11-11):**
 
@@ -125,12 +125,13 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (34.98% → 35
 - A verified project-snapshot source limit now allows up to 2 MiB per file while retaining the 8 MiB project cap; single-file operations remain at 512 KiB. A SHA-256-pinned golang.org/x/sys v0.6.0 Windows/amd64 fixture verifies both explicit errorspkg aliases and all three resolved uses, exact byte-span output, and successful builds before and after rename. The full Docker Go refactor package suite passes under Go 1.25 (55.935s).
 - Expanded the hash-pinned x/sys v0.6.0 import-alias holdout to Windows/arm64. Both Windows/amd64 and Windows/arm64 match 2/2 alias declarations and 3/3 references, reconstruct exact byte-span edits, and build the complete package before and after rename. The full Docker Go refactor package suite passes under Go 1.25 (63.917s). This adds cross-architecture validation for the credited alias capability, not another weighted capability point; overall progress remains 35.06%.
 - The Go whole-project safe-renames route now accepts and forwards an accepted, hash-verified source file larger than 512 KiB and up to 2 MiB under the existing 8 MiB aggregate limit; package-scope and single-file limits remain 512 KiB. A route regression proves a 512 KiB+ unmodified sibling reaches the module helper and stays out of changed-file drafts. Focused route tests pass 11/11, Docker TypeScript type-check and targeted ESLint pass. No weighted point is added because this completes the route integration for the already-scored project-snapshot capability.
+- Module-snapshot Go safe renames now coordinate explicit import aliases from multiple files; helper binding, exact edits, unchanged-selected-file behavior, and before/after module behavior are covered. Full Docker Go package suite passes (62.855s); route/UI tests pass 48/48; TypeScript type-check and targeted ESLint pass. Database-backed acceptance remains unverified.
 
-**Score decision:** The last capability-scored increase remains 34.98% to 35.06% (+0.08 points) for pinned x/sys alias validation. Windows/arm64 expansion and the newly verified 2 MiB route integration add evidence to that already-counted capability, not separate weighted points; overall progress remains 35.06%.
+**Score decision:** One partial semantic-renaming point is justified for coordinated explicit import-alias batches across module files: workstream completion rises from 41% to 42%, adding 0.08 weighted points to overall progress (35.06% to 35.14%). The helper suite includes exact binding/edit and behavior checks; route and visualizer tests are mocked integration checks, and live database acceptance remains unverified.
 
-**Next measurable gate:** Expand explicit-alias held-out accuracy to an independent upstream module and additional operating systems; measure false and missed references; add downstream-consumer compatibility and coordinated alias batches across module files.
+**Next measurable gate:** Expand held-out explicit-alias accuracy to independent upstream modules and operating systems; measure false and missed references; add downstream-consumer compatibility; then extend semantic propagation to another language.
 
-Refreshed from pushed commit `d121296`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `4290e8d`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
