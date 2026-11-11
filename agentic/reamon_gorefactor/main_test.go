@@ -150,6 +150,28 @@ type projectModuleRenameRejectFixture struct {
 	BuildContexts      []projectModuleRenameBuild `json:"build_contexts"`
 }
 
+type projectImportAliasHoldoutCorpus struct {
+	Version          int                           `json:"version"`
+	Name             string                        `json:"name"`
+	ModulePath       string                        `json:"module_path"`
+	SourceCommit     string                        `json:"source_commit"`
+	ModuleSum        string                        `json:"module_sum"`
+	GoModFixturePath string                        `json:"go_mod_fixture_path"`
+	GoModSHA256      string                        `json:"go_mod_sha256"`
+	LicenseFixture   string                        `json:"license_fixture_path"`
+	LicenseSHA256    string                        `json:"license_sha256"`
+	BuildContext     projectModuleRenameBuild      `json:"build_context"`
+	Files            []projectInventoryFixtureFile `json:"files"`
+	Aliases          []projectImportAliasHoldout   `json:"aliases"`
+}
+
+type projectImportAliasHoldout struct {
+	SelectedPath       string `json:"selected_path"`
+	Name               string `json:"name"`
+	ExpectedReferences int    `json:"expected_references"`
+	ExpectedEdits      int    `json:"expected_edits"`
+}
+
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
 	t.Helper()
 	for _, item := range cat.Bindings {

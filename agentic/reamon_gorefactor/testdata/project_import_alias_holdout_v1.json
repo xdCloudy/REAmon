@@ -1,0 +1,153 @@
+{
+  "version": 1,
+  "name": "golang.org/x/sys v0.6.0 Windows package explicit import aliases",
+  "module_path": "golang.org/x/sys",
+  "upstream_url": "https://go.googlesource.com/sys",
+  "release": "v0.6.0",
+  "source_commit": "c7a1bf9a0b0aa7c0c0e35a435924dd68e64d1653",
+  "module_sum": "h1:MVltZSvRTcU2ljQOhs94SXPftV6DCNnZViHeQps87pQ=",
+  "go_mod_fixture_path": "upstream_xsys_v0_6_0/go.mod",
+  "go_mod_sha256": "f033333096fe198f3151deed93f2deba74e50bbfe7739134045bc3b7ce4a5024",
+  "license_fixture_path": "upstream_xsys_v0_6_0/LICENSE",
+  "license_sha256": "2d36597f7117c38b006835ae7f537487207d8ec407aa9d9980794b2030cbc067",
+  "build_context": {
+    "goos": "windows",
+    "goarch": "amd64"
+  },
+  "files": [
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/internal/unsafeheader/unsafeheader.go",
+      "inventory_path": "internal/unsafeheader/unsafeheader.go",
+      "sha256": "8ab6b296b610d187578596c01c09ff0613d78d07a0d891d5e17aa5da375b6948"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/aliases.go",
+      "inventory_path": "windows/aliases.go",
+      "sha256": "0e06481ce34a57e5c63ac824dc0515f6fb70e5b4f9b0afdaeac753f7ac63dd0b"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/dll_windows.go",
+      "inventory_path": "windows/dll_windows.go",
+      "sha256": "c537db32b5a32d6951d0a0c5dbcda2882e75e5b712745a4e7d32fc37ce032d02"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/env_windows.go",
+      "inventory_path": "windows/env_windows.go",
+      "sha256": "69a9e0a6f465c88b24699ea8b6f587c679895ff2d34ff5a6a85c4635192f0a89"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/eventlog.go",
+      "inventory_path": "windows/eventlog.go",
+      "sha256": "820cee0265a2711ccf908e5d3613674671c0b7d2204641d5d3b36ae5f972cada"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/exec_windows.go",
+      "inventory_path": "windows/exec_windows.go",
+      "sha256": "489f6e496c990333e5a42b2990ade8ea37ac92208a30eb737cfe9bd953bc07d8"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/memory_windows.go",
+      "inventory_path": "windows/memory_windows.go",
+      "sha256": "070342979027b739e224a8d35c5dabd9ac6ea662b9a58954446f27103c2443c4"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/mksyscall.go",
+      "inventory_path": "windows/mksyscall.go",
+      "sha256": "64a9edffa145c72a75a85f16e23dcc9b4c40d6a25c6a4eee123275f1b7fd9fc8"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/race.go",
+      "inventory_path": "windows/race.go",
+      "sha256": "54f788b4477d53a91520b86eed01ded43d5ca03fe4109657c8c4499fc350a78d"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/race0.go",
+      "inventory_path": "windows/race0.go",
+      "sha256": "9a75e6afcfe4442a6a68ec6a86f224a21a0bcd8919ac0b1d4ed3176f00559c60"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/security_windows.go",
+      "inventory_path": "windows/security_windows.go",
+      "sha256": "1426cbaf67dff171b094de081d91c155c6a09bae1f00e95cdd867ba2b653272a"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/service.go",
+      "inventory_path": "windows/service.go",
+      "sha256": "39ef2595efd8279ff6403a94e78706bc79dbf775f21f5e31eabf41cf0d5a35c7"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/setupapi_windows.go",
+      "inventory_path": "windows/setupapi_windows.go",
+      "sha256": "72097fc028210a5700ede92673d155af6de97210292770bfb31363691dad07c4"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/str.go",
+      "inventory_path": "windows/str.go",
+      "sha256": "b28e3498046fc5e7db590560ab235d16fb871d046b961c88c8040203be713a77"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/syscall.go",
+      "inventory_path": "windows/syscall.go",
+      "sha256": "bd99425f1d8d4d778c1afa0e2a553dd5081ac983dd4cbb1aff56ff96d7665a69"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/syscall_windows.go",
+      "inventory_path": "windows/syscall_windows.go",
+      "sha256": "327bcae733fec29901bd095f09311db58796dea2dabdd24bb4ad0fe4962d56ae"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/types_windows.go",
+      "inventory_path": "windows/types_windows.go",
+      "sha256": "bb88628eeec6e0899c37bcbbede98fdc887c03168d56e13abd7b5fc5f8052f8d"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/types_windows_386.go",
+      "inventory_path": "windows/types_windows_386.go",
+      "sha256": "02d259fd40882f68a35913b0c1d3320054804d92a4a7a4e6b86b1816c1b90258"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/types_windows_amd64.go",
+      "inventory_path": "windows/types_windows_amd64.go",
+      "sha256": "c375406875cabc6447a9a8ca917eccab2227ea33a17ac3ed02a3a8fca0af8ce1"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/types_windows_arm.go",
+      "inventory_path": "windows/types_windows_arm.go",
+      "sha256": "e4dade4b688c7dea2a0d89a819d6917f3ab7be2514e462d7eb2fc2052cdc625c"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/types_windows_arm64.go",
+      "inventory_path": "windows/types_windows_arm64.go",
+      "sha256": "c375406875cabc6447a9a8ca917eccab2227ea33a17ac3ed02a3a8fca0af8ce1"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/zerrors_windows.go",
+      "inventory_path": "windows/zerrors_windows.go",
+      "sha256": "fdf634bbd093494501a9aec0660aa53b434fdc2c2bb989e8d0925323e511358d"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/zknownfolderids_windows.go",
+      "inventory_path": "windows/zknownfolderids_windows.go",
+      "sha256": "3815bbaa8adf5400041954decc56e8889eb56eb20bfc30053e7799703af0fc95"
+    },
+    {
+      "fixture_path": "upstream_xsys_v0_6_0/windows/zsyscall_windows.go",
+      "inventory_path": "windows/zsyscall_windows.go",
+      "sha256": "c90805ecada3083b82ecf2369b428dd7e0984dda7bb3db1afa77684314260ef4"
+    }
+  ],
+  "aliases": [
+    {
+      "selected_path": "windows/exec_windows.go",
+      "name": "errorspkg",
+      "expected_references": 1,
+      "expected_edits": 2
+    },
+    {
+      "selected_path": "windows/syscall_windows.go",
+      "name": "errorspkg",
+      "expected_references": 2,
+      "expected_edits": 3
+    }
+  ]
+}

@@ -26,6 +26,7 @@ import (
 )
 
 const maxSourceBytes = 512 * 1024
+const maxProjectFileBytes = 2 * 1024 * 1024
 const maxProjectBytes = 8 * 1024 * 1024
 const maxProjectFiles = 256
 const maxRequestBytes = maxProjectBytes + maxProjectFiles*8192 + 2*1024*1024
@@ -552,8 +553,8 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 		}
 		seenPaths[pathKey] = true
 		sourceBytes := len([]byte(input.Source))
-		if sourceBytes > maxSourceBytes {
-			return nil, fmt.Errorf("%s exceeds the 512 KiB safe-rename limit", filePath)
+		if sourceBytes > maxProjectFileBytes {
+			return nil, fmt.Errorf("%s exceeds the 2 MiB safe-project file limit", filePath)
 		}
 		totalBytes += sourceBytes
 		if totalBytes > maxProjectBytes {
