@@ -8,16 +8,69 @@
       "go_mod_sha256": "f291c6cca97f4c0e46c8fc4dc1005380d225800a42f28774928bec80f2c553bd",
       "selected_path": "mux.go",
       "files": [
-        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_doc_go", "inventory_path": "doc.go", "sha256": "ce31609fc8771d867b51319781dac696d2b97c4ca5b322f3b91b93999b3ce35b"},
-        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_middleware_go", "inventory_path": "middleware.go", "sha256": "028f45ec94f1716f7eb614a7713db9555334076a061b29022e17b7cd1c82d177"},
-        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_mux_go", "inventory_path": "mux.go", "sha256": "9fe967437d9bc37d9dfa8e3e7f742bd9a74561c8bdc2f63b73387ca90dfa3e16"},
-        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_regexp_go", "inventory_path": "regexp.go", "sha256": "6e628d7499e92ba7f0092e9936e2854609f912e6b86d44af94fabaf38ebd4fcb"},
-        {"fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_route_go", "inventory_path": "route.go", "sha256": "fe167aba63cd3dfe4d0a5792e5a1eae05dd53947545be4a6fb351a1d64f4bc58"}
+        {
+          "fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_doc_go",
+          "inventory_path": "doc.go",
+          "sha256": "ce31609fc8771d867b51319781dac696d2b97c4ca5b322f3b91b93999b3ce35b"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_middleware_go",
+          "inventory_path": "middleware.go",
+          "sha256": "028f45ec94f1716f7eb614a7713db9555334076a061b29022e17b7cd1c82d177"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_mux_go",
+          "inventory_path": "mux.go",
+          "sha256": "9fe967437d9bc37d9dfa8e3e7f742bd9a74561c8bdc2f63b73387ca90dfa3e16"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_regexp_go",
+          "inventory_path": "regexp.go",
+          "sha256": "6e628d7499e92ba7f0092e9936e2854609f912e6b86d44af94fabaf38ebd4fcb"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/gorilla_mux_v1_8_1_route_go",
+          "inventory_path": "route.go",
+          "sha256": "fe167aba63cd3dfe4d0a5792e5a1eae05dd53947545be4a6fb351a1d64f4bc58"
+        }
       ],
       "build_contexts": [
-        {"goos": "linux", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108},
-        {"goos": "windows", "goarch": "amd64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108},
-        {"goos": "linux", "goarch": "arm64", "selected_path": "mux.go", "expected_package_tp": 53, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 531, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 108}
+        {
+          "goos": "linux",
+          "goarch": "amd64",
+          "selected_path": "mux.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 531,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 108
+        },
+        {
+          "goos": "windows",
+          "goarch": "amd64",
+          "selected_path": "mux.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 531,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 108
+        },
+        {
+          "goos": "linux",
+          "goarch": "arm64",
+          "selected_path": "mux.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 531,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 108
+        }
       ]
     },
     {
@@ -29,12 +82,35 @@
       "go_sum_sha256": "dbd4595531ce86f3bcaafc38a4afb6f249ec9c3e7907ec4ea3bf2be1c6a99238",
       "selected_path": "isatty_windows.go",
       "files": [
-        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_doc_go", "inventory_path": "doc.go", "sha256": "06182cb1a7113cae6fdef9be492893298610bfc63cf565a23f86203c3074a861"},
-        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_windows_go", "inventory_path": "isatty_windows.go", "sha256": "a8d1abddcc587bb02b34288fb5b70e5bfc36f826e3a11acd206883ed900832aa"},
-        {"fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_others_go", "inventory_path": "isatty_others.go", "sha256": "ad3cec73607a7861f625c80e38734d14dd89fcd0f88159a6af746f0d235c6eb3"}
+        {
+          "fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_doc_go",
+          "inventory_path": "doc.go",
+          "sha256": "06182cb1a7113cae6fdef9be492893298610bfc63cf565a23f86203c3074a861"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_windows_go",
+          "inventory_path": "isatty_windows.go",
+          "sha256": "a8d1abddcc587bb02b34288fb5b70e5bfc36f826e3a11acd206883ed900832aa"
+        },
+        {
+          "fixture_path": "project_inventory_holdout_v1/go_isatty_v0_0_20_isatty_others_go",
+          "inventory_path": "isatty_others.go",
+          "sha256": "ad3cec73607a7861f625c80e38734d14dd89fcd0f88159a6af746f0d235c6eb3"
+        }
       ],
       "build_contexts": [
-        {"goos": "js", "goarch": "wasm", "selected_path": "isatty_others.go", "expected_package_tp": 2, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 4, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 0}
+        {
+          "goos": "js",
+          "goarch": "wasm",
+          "selected_path": "isatty_others.go",
+          "expected_package_tp": 2,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 4,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 0
+        }
       ]
     },
     {
@@ -44,14 +120,141 @@
       "go_mod_sha256": "b845c771120429f2f164968091d264f7be36319f1c707579c05d2f7c759e4dca",
       "selected_path": "router.go",
       "files": [
-        {"fixture_path": "upstream_httprouter_v1_3_0/path.go", "inventory_path": "path.go", "sha256": "97f491564b35d2a8026bc0524cb4bc4ef1201fe24c1d8b6dab28967fb122ebb7"},
-        {"fixture_path": "upstream_httprouter_v1_3_0/router.go", "inventory_path": "router.go", "sha256": "4e7e97a6785ab9570a51bbbb609c0583961bbf79798c44b5810a3d67e619279f"},
-        {"fixture_path": "upstream_httprouter_v1_3_0/tree.go", "inventory_path": "tree.go", "sha256": "223b95fb7a7ded30931f37a0a30cabae50533e3f6a01be1f5139024f3e8a2ebf"}
+        {
+          "fixture_path": "upstream_httprouter_v1_3_0/path.go",
+          "inventory_path": "path.go",
+          "sha256": "97f491564b35d2a8026bc0524cb4bc4ef1201fe24c1d8b6dab28967fb122ebb7"
+        },
+        {
+          "fixture_path": "upstream_httprouter_v1_3_0/router.go",
+          "inventory_path": "router.go",
+          "sha256": "4e7e97a6785ab9570a51bbbb609c0583961bbf79798c44b5810a3d67e619279f"
+        },
+        {
+          "fixture_path": "upstream_httprouter_v1_3_0/tree.go",
+          "inventory_path": "tree.go",
+          "sha256": "223b95fb7a7ded30931f37a0a30cabae50533e3f6a01be1f5139024f3e8a2ebf"
+        }
       ],
       "build_contexts": [
-        {"goos": "linux", "goarch": "amd64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42},
-        {"goos": "windows", "goarch": "amd64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42},
-        {"goos": "linux", "goarch": "arm64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42}
+        {
+          "goos": "linux",
+          "goarch": "amd64",
+          "selected_path": "router.go",
+          "expected_package_tp": 20,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 238,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 42
+        },
+        {
+          "goos": "windows",
+          "goarch": "amd64",
+          "selected_path": "router.go",
+          "expected_package_tp": 20,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 238,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 42
+        },
+        {
+          "goos": "linux",
+          "goarch": "arm64",
+          "selected_path": "router.go",
+          "expected_package_tp": 20,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 238,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 42
+        }
+      ]
+    },
+    {
+      "name": "chi-v5.2.1",
+      "module_path": "github.com/go-chi/chi/v5",
+      "go_mod_fixture_path": "upstream_chi_v5_2_1/go.mod",
+      "go_mod_sha256": "1f512b7849eed7acb188046b4de09a8de6dc45edad91ea4f1e6637f83c4e0826",
+      "selected_path": "context.go",
+      "files": [
+        {
+          "fixture_path": "upstream_chi_v5_2_1/chain.go",
+          "inventory_path": "chain.go",
+          "sha256": "8479822bbbc4c4fc82c04d73d4a1c3ea4aa6a71a691fe616999df2bbc6d25075"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/chi.go",
+          "inventory_path": "chi.go",
+          "sha256": "dc0ff8d91b006ccf66f7e17af8fd130322a5ca1d8972ee73847d94412da5c5e2"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/context.go",
+          "inventory_path": "context.go",
+          "sha256": "f70936bed596ddc554d697ca1f03e644e1a1ea95afa0bcb5fba1e24bd05de74f"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/mux.go",
+          "inventory_path": "mux.go",
+          "sha256": "5ea3c1dd01fdba216a0380e602e65601f10ad9e029d1430c29e2fa409b405dbb"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/path_value.go",
+          "inventory_path": "path_value.go",
+          "sha256": "95686de07d23f6f24361318ccd1f4411eeaa517fa1389fa4b5a386e06cd10ed8"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/path_value_fallback.go",
+          "inventory_path": "path_value_fallback.go",
+          "sha256": "cbbfdac55b999fdcb0b89dadba59de63c14789fb5c39889f1d68ecbb05f39d9a"
+        },
+        {
+          "fixture_path": "upstream_chi_v5_2_1/tree.go",
+          "inventory_path": "tree.go",
+          "sha256": "fd341767221dee3137cf71559695687bc09eb6679315eb5192db76942df3c85a"
+        }
+      ],
+      "build_contexts": [
+        {
+          "goos": "linux",
+          "goarch": "amd64",
+          "selected_path": "context.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 596,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 121
+        },
+        {
+          "goos": "windows",
+          "goarch": "amd64",
+          "selected_path": "context.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 596,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 121
+        },
+        {
+          "goos": "linux",
+          "goarch": "arm64",
+          "selected_path": "context.go",
+          "expected_package_tp": 53,
+          "expected_package_fp": 0,
+          "expected_package_fn": 0,
+          "expected_all_scope_tp": 596,
+          "expected_all_scope_fp": 0,
+          "expected_all_scope_fn": 0,
+          "expected_member_count": 121
+        }
       ]
     }
   ]

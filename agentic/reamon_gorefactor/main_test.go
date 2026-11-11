@@ -613,6 +613,207 @@ func assertPinnedGorillaMuxMethodRename(t *testing.T, renameFixture projectModul
 	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renamedRouterMethod, renamedRouteMethod, "renamed")
 }
 
+func TestProjectModuleRenamePinnedChiContextReset(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_holdout_v1.json"))
+	if err != nil {
+		t.Fatalf("read pinned chi source manifest: %v", err)
+	}
+	var sourceCorpus projectInventoryRecallCorpus
+	if err := json.Unmarshal(manifestBytes, &sourceCorpus); err != nil {
+		t.Fatalf("parse pinned chi source manifest: %v", err)
+	}
+	var fixture *projectInventoryRecallFixture
+	for i := range sourceCorpus.Fixtures {
+		if sourceCorpus.Fixtures[i].Name == "chi-v5.2.1" {
+			fixture = &sourceCorpus.Fixtures[i]
+			break
+		}
+	}
+	if fixture == nil || fixture.ModulePath != "github.com/go-chi/chi/v5" || len(fixture.BuildContexts) != 3 {
+		t.Fatalf("pinned chi source fixture = %+v; want v5.2.1 and three build contexts", fixture)
+	}
+	goModBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(fixture.GoModFixture)))
+	if err != nil {
+		t.Fatalf("read pinned chi go.mod: %v", err)
+	}
+	if hashText(string(goModBytes)) != fixture.GoModSHA256 {
+		t.Fatal("pinned chi go.mod hash changed")
+	}
+	licenseBytes, err := os.ReadFile(filepath.Join("testdata", "upstream_chi_v5_2_1", "LICENSE"))
+	if err != nil {
+		t.Fatalf("read pinned chi license: %v", err)
+	}
+	if hashText(string(licenseBytes)) != "37808a0b0de20e89268beac2d5cd0443646640025d66669574ad71c2abf72d4c" {
+		t.Fatal("pinned chi license hash changed")
+	}
+	files := make([]projectFile, 0, len(fixture.Files))
+	for _, sourceFile := range fixture.Files {
+		content, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(sourceFile.FixturePath)))
+		if err != nil {
+			t.Fatalf("read pinned chi source %s: %v", sourceFile.InventoryPath, err)
+		}
+		if hashText(string(content)) != sourceFile.SHA256 {
+			t.Fatalf("pinned chi source hash changed: %s", sourceFile.InventoryPath)
+		}
+		files = append(files, projectFile{Path: sourceFile.InventoryPath, Source: string(content)})
+	}
+
+	var linuxOutputs map[string]string
+	for _, build := range fixture.BuildContexts {
+		build := build
+		t.Run(build.GOOS+"/"+build.GOARCH, func(t *testing.T) {
+			request := goProjectRequest(files, "context.go")
+			request.Operation = "project_module_bindings"
+			request.ModulePath, request.GoMod, request.GoModHash = fixture.ModulePath, string(goModBytes), fixture.GoModSHA256
+			request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+			catalogResult, err := listProjectModuleBindings(request)
+			if err != nil {
+				t.Fatalf("catalog pinned chi module: %v", err)
+			}
+			var selected binding
+			for _, raw := range catalogResult["bindings"].([]map[string]any) {
+				if raw["name"] == "Reset" && raw["relativePath"] == "context.go" {
+					selected = binding{ID: raw["id"].(string), Name: "Reset", ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported || selected.ReferenceCount != 1 {
+				t.Fatalf("pinned chi Context.Reset binding = %+v; want exported method with one in-module reference", selected)
+			}
+
+			request.Operation = "project_module_rename"
+			request.ExpectedHash = catalogResult["source_sha256"].(string)
+			request.SourceSetHash = catalogResult["source_set_sha256"].(string)
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: "Clear"}}
+			result, err := applyProjectModuleRenames(request)
+			if err != nil {
+				t.Fatalf("rename pinned chi Context.Reset: %v", err)
+			}
+			renamedBindings := result["renamed_bindings"].([]map[string]any)
+			if len(renamedBindings) != 1 || renamedBindings[0]["oldName"] != "Reset" || renamedBindings[0]["newName"] != "Clear" || renamedBindings[0]["exported"] != true {
+				t.Fatalf("pinned chi rename disclosure = %#v; want exported Reset to Clear", renamedBindings)
+			}
+			outputs := outputsBeforeRename(files)
+			sourceByPath := filesByPath(files)
+			editCounts := make(map[string]int)
+			for _, output := range result["files"].([]map[string]any) {
+				filePath := output["relative_path"].(string)
+				outputs[filePath] = output["source_code"].(string)
+				for _, edit := range output["edits"].([]map[string]any) {
+					start, startOK := edit["start"].(int)
+					end, endOK := edit["end"].(int)
+					if edit["old_text"] != "Reset" || edit["new_text"] != "Clear" || !startOK || !endOK || start < 0 || end > len(sourceByPath[filePath]) || sourceByPath[filePath][start:end] != "Reset" {
+						t.Fatalf("pinned chi edit for %s = %#v; want exact Reset to Clear byte span", filePath, edit)
+					}
+					editCounts[filePath]++
+				}
+			}
+			if !reflect.DeepEqual(editCounts, map[string]int{"context.go": 1, "mux.go": 1}) {
+				t.Fatalf("pinned chi exact edits by file = %#v; want context.go and mux.go once each", editCounts)
+			}
+
+			contractRequest := goProjectRequest(files, "mux.go")
+			contractRequest.Operation = "project_module_bindings"
+			contractRequest.ModulePath, contractRequest.GoMod, contractRequest.GoModHash = fixture.ModulePath, string(goModBytes), fixture.GoModSHA256
+			contractRequest.BuildGOOS, contractRequest.BuildGOARCH = build.GOOS, build.GOARCH
+			contractCatalog, err := listProjectModuleBindings(contractRequest)
+			if err != nil {
+				t.Fatalf("catalog pinned chi local interface contract: %v", err)
+			}
+			var methodBinding binding
+			for _, raw := range contractCatalog["bindings"].([]map[string]any) {
+				if raw["name"] == "Method" && raw["relativePath"] == "mux.go" {
+					methodBinding = binding{ID: raw["id"].(string), Name: "Method", ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if methodBinding.ID == "" || !methodBinding.Exported || methodBinding.ReferenceCount != 3 {
+				t.Fatalf("pinned chi Mux.Method binding = %+v; want exported method with three in-module references", methodBinding)
+			}
+			contractRequest.Operation = "project_module_rename"
+			contractRequest.ExpectedHash = contractCatalog["source_sha256"].(string)
+			contractRequest.SourceSetHash = contractCatalog["source_set_sha256"].(string)
+			contractRequest.Renames = []renameSelection{{ID: methodBinding.ID, NewName: "Register"}}
+			if _, err := applyProjectModuleRenames(contractRequest); err == nil || !strings.Contains(err.Error(), "does not implement Router") {
+				t.Fatalf("pinned chi Mux.Method interface-contract rename error = %v; want rejection because Mux would stop implementing Router", err)
+			}
+			if build.GOOS == "linux" {
+				linuxOutputs = outputs
+			}
+		})
+	}
+	if linuxOutputs == nil {
+		t.Fatal("pinned Linux chi rename did not produce outputs")
+	}
+	assertChiContextResetBehavior(t, filesByPath(files), string(goModBytes), "original")
+	assertChiContextResetBehavior(t, linuxOutputs, string(goModBytes), "renamed")
+	assertChiResetDownstreamCompatibility(t, filesByPath(files), string(goModBytes), "original", true)
+	assertChiResetDownstreamCompatibility(t, linuxOutputs, string(goModBytes), "renamed", false)
+}
+
+func assertChiContextResetBehavior(t *testing.T, files map[string]string, goMod, variant string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatalf("write pinned chi %s go.mod: %v", variant, err)
+	}
+	for filePath, source := range files {
+		if err := os.WriteFile(filepath.Join(root, filepath.Base(filePath)), []byte(source), 0o600); err != nil {
+			t.Fatalf("write pinned chi %s source %s: %v", variant, filePath, err)
+		}
+	}
+	testSource := "package chi_test\nimport (\"net/http\"; \"net/http/httptest\"; \"testing\"; \"github.com/go-chi/chi/v5\")\nfunc TestHeldOutChiRouteBehavior(t *testing.T) { router := chi.NewRouter(); router.Get(\"/users/{name}\", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(chi.URLParam(r, \"name\"))) }); response := httptest.NewRecorder(); router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, \"/users/alice\", nil)); if response.Code != http.StatusOK || response.Body.String() != \"alice\" { t.Fatalf(\"route behavior changed: %d %q\", response.Code, response.Body.String()) } }\n"
+	if err := os.WriteFile(filepath.Join(root, "module_rename_test.go"), []byte(testSource), 0o600); err != nil {
+		t.Fatalf("write pinned chi %s behavior oracle: %v", variant, err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pinned chi %s behavior oracle failed: %v\n%s", variant, err, output)
+	}
+}
+
+func assertChiResetDownstreamCompatibility(t *testing.T, files map[string]string, goMod, variant string, wantCompile bool) {
+	t.Helper()
+	root := t.TempDir()
+	moduleRoot := filepath.Join(root, "chi")
+	consumerRoot := filepath.Join(root, "consumer")
+	if err := os.MkdirAll(moduleRoot, 0o700); err != nil {
+		t.Fatalf("create pinned chi %s module: %v", variant, err)
+	}
+	if err := os.MkdirAll(consumerRoot, 0o700); err != nil {
+		t.Fatalf("create pinned chi %s consumer: %v", variant, err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleRoot, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatalf("write pinned chi %s go.mod: %v", variant, err)
+	}
+	for filePath, source := range files {
+		if err := os.WriteFile(filepath.Join(moduleRoot, filepath.Base(filePath)), []byte(source), 0o600); err != nil {
+			t.Fatalf("write pinned chi %s source %s: %v", variant, filePath, err)
+		}
+	}
+	consumerModule := "module example.test/chi-consumer\n\ngo 1.20\n\nrequire github.com/go-chi/chi/v5 v5.2.1\nreplace github.com/go-chi/chi/v5 => ../chi\n"
+	if err := os.WriteFile(filepath.Join(consumerRoot, "go.mod"), []byte(consumerModule), 0o600); err != nil {
+		t.Fatalf("write pinned chi %s consumer go.mod: %v", variant, err)
+	}
+	consumerSource := "package consumer_test\nimport \"github.com/go-chi/chi/v5\"\nfunc usePublicReset() { chi.NewRouteContext().Reset() }\n"
+	if err := os.WriteFile(filepath.Join(consumerRoot, "consumer_test.go"), []byte(consumerSource), 0o600); err != nil {
+		t.Fatalf("write pinned chi %s downstream consumer: %v", variant, err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = consumerRoot
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if wantCompile && err != nil {
+		t.Fatalf("pinned chi %s downstream consumer failed unexpectedly: %v\n%s", variant, err, output)
+	}
+	if !wantCompile && (err == nil || !strings.Contains(string(output), "Reset undefined")) {
+		t.Fatalf("pinned chi %s downstream compatibility result = %v\n%s; want compile failure identifying the removed Reset API", variant, err, output)
+	}
+}
+
 func TestProjectModuleRenamePinnedHttprouterV130(t *testing.T) {
 	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_holdout_v1.json"))
 	if err != nil {
@@ -2034,8 +2235,8 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &corpus); err != nil {
 		t.Fatalf("parse held-out project inventory manifest: %v", err)
 	}
-	if corpus.Version != 1 || len(corpus.Fixtures) != 3 {
-		t.Fatalf("held-out corpus version/fixture count = %d/%d; want 1/3", corpus.Version, len(corpus.Fixtures))
+	if corpus.Version != 1 || len(corpus.Fixtures) != 4 {
+		t.Fatalf("held-out corpus version/fixture count = %d/%d; want 1/4", corpus.Version, len(corpus.Fixtures))
 	}
 
 	for _, fixture := range corpus.Fixtures {
