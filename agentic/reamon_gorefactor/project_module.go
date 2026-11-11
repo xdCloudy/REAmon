@@ -1,18 +1,24 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"go/types"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 type projectModuleCatalog struct {
+	ModulePath         string
 	SelectedPath       string
 	SelectedHash       string
 	SourceSetHash      string
@@ -156,6 +162,7 @@ func buildProjectModuleCatalog(req request) (*projectModuleCatalog, error) {
 		}
 	}
 	return &projectModuleCatalog{
+		ModulePath:   req.ModulePath,
 		SelectedPath: selectedPath, SelectedHash: selectedHash,
 		SourceSetHash:      hashProjectSources(allFiles),
 		InventoryScopeHash: hashProjectInventory(selectedFiles, buildContext),
@@ -289,6 +296,214 @@ func listProjectModuleBindings(req request) (map[string]any, error) {
 		"truncated":              false, "bindings": bindings, "files": files,
 		"parser_version": runtime.Version(),
 	}, nil
+}
+
+func downstreamFallbackManifest(goMod, consumerModulePath, importedModulePath string, build goBuildContext) (string, error) {
+	root, err := os.MkdirTemp("", "reamon-go-downstream-mod-")
+	if err != nil {
+		return "", fmt.Errorf("cannot prepare downstream Go dependency manifest")
+	}
+	defer os.RemoveAll(root)
+	manifestPath := filepath.Join(root, "go.mod")
+	if err := os.WriteFile(manifestPath, []byte(goMod), 0600); err != nil {
+		return "", fmt.Errorf("cannot stage downstream Go dependency manifest")
+	}
+	inspect := exec.Command("go", "mod", "edit", "-json")
+	inspect.Dir = root
+	inspect.Env = goBuildCommandEnvironment(build)
+	manifestJSON, err := inspect.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cannot inspect downstream Go dependency manifest: %s", strings.TrimSpace(string(manifestJSON)))
+	}
+	var metadata struct {
+		Module  struct{ Path string }
+		Require []struct{ Path string }
+	}
+	if err := json.Unmarshal(manifestJSON, &metadata); err != nil || metadata.Module.Path != consumerModulePath {
+		return "", fmt.Errorf("downstream Go module path does not match its verified go.mod")
+	}
+	declaresImportedModule := false
+	for _, requirement := range metadata.Require {
+		if requirement.Path == importedModulePath {
+			declaresImportedModule = true
+			break
+		}
+	}
+	if !declaresImportedModule {
+		return "", fmt.Errorf("downstream Go module does not declare a dependency on %s", importedModulePath)
+	}
+	command := exec.Command("go", "mod", "edit", "-droprequire="+importedModulePath, "-dropreplace="+importedModulePath)
+	command.Dir = root
+	command.Env = goBuildCommandEnvironment(build)
+	if output, err := command.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("cannot prepare downstream Go dependency lookup: %s", strings.TrimSpace(string(output)))
+	}
+	contents, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return "", fmt.Errorf("cannot read downstream Go dependency manifest")
+	}
+	return string(contents), nil
+}
+
+func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream downstreamModuleSnapshot, build goBuildContext) (bool, error) {
+	if downstream.ModulePath == "" || !safeGoModuleImportPath(downstream.ModulePath) || downstream.ModulePath == app.ModulePath {
+		return false, fmt.Errorf("downstream Go module identity is invalid")
+	}
+	if downstream.ModuleRoot != "" {
+		root, err := safeGoModuleRoot(downstream.ModuleRoot)
+		if err != nil || root != downstream.ModuleRoot {
+			return false, fmt.Errorf("downstream Go module root is invalid")
+		}
+	}
+	if len(downstream.Files) == 0 || len(downstream.Files) > maxProjectFiles {
+		return false, fmt.Errorf("downstream Go module requires between 1 and %d source files", maxProjectFiles)
+	}
+	if len(downstream.GoMod) == 0 || len(downstream.GoModHash) != 64 || !strings.EqualFold(hashText(downstream.GoMod), downstream.GoModHash) {
+		return false, fmt.Errorf("downstream Go module requires a matching go.mod receipt")
+	}
+	if (downstream.GoSum == "") != (downstream.GoSumHash == "") || (downstream.GoSum != "" && (len(downstream.GoSumHash) != 64 || !strings.EqualFold(hashText(downstream.GoSum), downstream.GoSumHash))) {
+		return false, fmt.Errorf("downstream Go module go.sum receipt is invalid")
+	}
+	consumerBase := request{
+		ModulePath: downstream.ModulePath, ModuleRoot: downstream.ModuleRoot,
+		GoMod: downstream.GoMod, GoModHash: downstream.GoModHash, GoSum: downstream.GoSum, GoSumHash: downstream.GoSumHash,
+		BuildGOOS: build.GOOS, BuildGOARCH: build.GOARCH, BuildCgo: &build.CgoEnabled, BuildTags: append([]string(nil), build.Tags...),
+	}
+	fallbackManifest, err := downstreamFallbackManifest(downstream.GoMod, downstream.ModulePath, app.ModulePath, build)
+	if err != nil {
+		return false, err
+	}
+	consumerBase.GoMod = fallbackManifest
+	consumerBase.GoModHash = hashText(fallbackManifest)
+	context, err := normalizeGoBuildContext(consumerBase)
+	if err != nil {
+		return false, fmt.Errorf("downstream Go build context is invalid: %w", err)
+	}
+	files := append([]projectFile(nil), downstream.Files...)
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	seenPaths := make(map[string]bool, len(files))
+	totalBytes := 0
+	importsTarget := false
+	groups := make(map[string][]projectFile)
+	for _, file := range files {
+		filePath, pathErr := safeGoPath(file.Path)
+		if pathErr != nil || filePath != file.Path || (downstream.ModuleRoot != "" && filePath != downstream.ModuleRoot && !strings.HasPrefix(filePath, downstream.ModuleRoot+"/")) {
+			return false, fmt.Errorf("downstream Go source path is outside its module root")
+		}
+		pathKey := strings.ToLower(filePath)
+		if seenPaths[pathKey] {
+			return false, fmt.Errorf("downstream Go module source paths collide: %s", filePath)
+		}
+		seenPaths[pathKey] = true
+		totalBytes += len([]byte(file.Source))
+		if totalBytes > maxProjectBytes || len([]byte(file.Source)) > maxProjectFileBytes {
+			return false, fmt.Errorf("downstream Go module source exceeds the safe-check limit")
+		}
+		if file.ExpectedHash != "" && !strings.EqualFold(hashText(file.Source), file.ExpectedHash) {
+			return false, fmt.Errorf("downstream Go source changed for %s", file.Path)
+		}
+		fileSet := token.NewFileSet()
+		parsed, parseErr := parser.ParseFile(fileSet, file.Path, file.Source, parser.AllErrors|parser.ParseComments)
+		if parseErr != nil {
+			return false, fmt.Errorf("downstream Go parser rejected %s: %s", file.Path, parseErr.Error())
+		}
+		for _, spec := range parsed.Imports {
+			importPath, unquoteErr := strconv.Unquote(spec.Path.Value)
+			if unquoteErr == nil && (importPath == app.ModulePath || strings.HasPrefix(importPath, app.ModulePath+"/")) {
+				importsTarget = true
+			}
+		}
+		key := path.Dir(file.Path) + "\x00" + parsed.Name.Name
+		groups[key] = append(groups[key], file)
+	}
+	if !importsTarget {
+		return false, nil
+	}
+	selectedFiles, err := selectGoBuildFiles(files, context)
+	if err != nil {
+		return true, fmt.Errorf("cannot select downstream Go build files: %w", err)
+	}
+	packageRequests := make(map[string]request, len(groups))
+	groupKeys := make([]string, 0, len(groups))
+	for key := range groups {
+		groupKeys = append(groupKeys, key)
+	}
+	sort.Strings(groupKeys)
+	for _, key := range groupKeys {
+		group := groups[key]
+		var active []projectFile
+		for _, file := range selectedFiles {
+			if path.Dir(file.Path) == path.Dir(group[0].Path) {
+				active = append(active, file)
+			}
+		}
+		if len(active) == 0 {
+			continue
+		}
+		importPath, pathErr := projectPackageImportPath(downstream.ModulePath, downstream.ModuleRoot, path.Dir(active[0].Path))
+		if pathErr != nil {
+			return true, pathErr
+		}
+		if _, collision := app.Importer.packages[importPath]; collision {
+			return true, fmt.Errorf("downstream Go package path collides with target module: %s", importPath)
+		}
+		if _, duplicate := packageRequests[importPath]; duplicate {
+			return true, fmt.Errorf("downstream Go module has ambiguous package path: %s", importPath)
+		}
+		packageRequests[importPath] = request{
+			SelectedPath: active[0].Path, Source: active[0].Source, Files: active, PackagePath: importPath,
+			BuildGOOS: context.GOOS, BuildGOARCH: context.GOARCH, BuildCgo: &context.CgoEnabled, BuildTags: append([]string(nil), context.Tags...),
+			ModulePath: downstream.ModulePath, ModuleRoot: downstream.ModuleRoot,
+			GoMod: downstream.GoMod, GoModHash: downstream.GoModHash, GoSum: downstream.GoSum, GoSumHash: downstream.GoSumHash,
+		}
+	}
+	if len(packageRequests) == 0 {
+		return true, fmt.Errorf("downstream Go module has no source packages for the target build context")
+	}
+	fallback := newGoTargetImporter(context)
+	if fallback.setupErr != nil {
+		_ = fallback.Close()
+		return true, fallback.setupErr
+	}
+	defer fallback.Close()
+	packages := make(map[string]request, len(app.Importer.packages)+len(packageRequests))
+	catalogs := make(map[string]*projectCatalog, len(app.Importer.catalogs)+len(app.Importer.packages))
+	for importPath, packageRequest := range app.Importer.packages {
+		packages[importPath] = packageRequest
+	}
+	for importPath, catalog := range app.Importer.catalogs {
+		catalogs[importPath] = catalog
+	}
+	for importPath, packageRequest := range packageRequests {
+		if _, exists := packages[importPath]; exists {
+			return true, fmt.Errorf("downstream Go module package path is ambiguous: %s", importPath)
+		}
+		packages[importPath] = packageRequest
+	}
+	consumerImporter := &goProjectImporter{
+		packages: packages, catalogs: catalogs, visiting: make(map[string]bool), fallback: fallback,
+	}
+	importsTarget = false
+	consumerPaths := make([]string, 0, len(packageRequests))
+	for importPath := range packageRequests {
+		consumerPaths = append(consumerPaths, importPath)
+	}
+	sort.Strings(consumerPaths)
+	for _, importPath := range consumerPaths {
+		catalog, loadErr := consumerImporter.load(importPath)
+		if loadErr != nil {
+			return true, fmt.Errorf("downstream Go module %s does not type-check: %s", downstream.ModulePath, loadErr.Error())
+		}
+		for _, file := range catalog.Files {
+			for _, spec := range file.AST.Imports {
+				imported, unquoteErr := strconv.Unquote(spec.Path.Value)
+				if unquoteErr == nil && (imported == app.ModulePath || strings.HasPrefix(imported, app.ModulePath+"/")) {
+					importsTarget = true
+				}
+			}
+		}
+	}
+	return importsTarget, nil
 }
 
 func applyProjectModuleRenames(req request) (map[string]any, error) {
@@ -449,6 +664,68 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 			}
 		}
 	}
+	downstreamCompatibility := map[string]any{"status": "not_required", "checked_modules": 0}
+	needsDownstreamCheck := false
+	for _, choice := range selected {
+		if choice.item.Kind == "method" && choice.item.Exported {
+			needsDownstreamCheck = true
+			break
+		}
+	}
+	if needsDownstreamCheck {
+		if req.DownstreamModules == nil {
+			downstreamCompatibility["status"] = "not_supplied"
+		} else if len(req.DownstreamModules) > 32 {
+			return nil, fmt.Errorf("downstream Go compatibility is limited to 32 module snapshots")
+		} else {
+			downstreamPaths := make(map[string]bool, len(req.DownstreamModules))
+			downstreamFiles, downstreamBytes := 0, 0
+			for _, downstream := range req.DownstreamModules {
+				if downstreamPaths[downstream.ModulePath] {
+					return nil, fmt.Errorf("downstream Go module paths are ambiguous: %s", downstream.ModulePath)
+				}
+				downstreamPaths[downstream.ModulePath] = true
+				downstreamFiles += len(downstream.Files)
+				for _, file := range downstream.Files {
+					downstreamBytes += len([]byte(file.Source))
+				}
+			}
+			if downstreamFiles > maxProjectFiles || downstreamBytes > maxProjectBytes {
+				return nil, fmt.Errorf("downstream Go compatibility exceeds the %d-file or 8 MiB safe-check limit", maxProjectFiles)
+			}
+			buildContext, contextErr := normalizeGoBuildContext(req)
+			if contextErr != nil {
+				return nil, contextErr
+			}
+			checkedModules := 0
+			for _, downstream := range req.DownstreamModules {
+				importsTarget, checkErr := checkDownstreamModuleCompatibility(catalog, downstream, buildContext)
+				if checkErr != nil {
+					return nil, fmt.Errorf("cannot verify downstream compatibility for %s against original module: %s", downstream.ModulePath, checkErr.Error())
+				}
+				if !importsTarget {
+					continue
+				}
+				checkedModules++
+				if _, checkErr := checkDownstreamModuleCompatibility(outputCatalog, downstream, buildContext); checkErr != nil {
+					return nil, fmt.Errorf("Go rename breaks downstream module %s or leaves it untype-checkable: %s", downstream.ModulePath, checkErr.Error())
+				}
+			}
+			if checkedModules > 0 {
+				status := "checked"
+				if !req.DownstreamModulesComplete {
+					status = "partial"
+				}
+				downstreamCompatibility = map[string]any{"status": status, "checked_modules": checkedModules, "build_goos": buildContext.GOOS, "build_goarch": buildContext.GOARCH}
+			} else {
+				if req.DownstreamModulesComplete {
+					downstreamCompatibility["status"] = "no_consumers"
+				} else {
+					downstreamCompatibility["status"] = "incomplete"
+				}
+			}
+		}
+	}
 	selectedOutput := outputsByPath[catalog.SelectedPath]
 	if selectedOutput == "" {
 		selectedOutput = filesByPath[catalog.SelectedPath].Text
@@ -473,7 +750,8 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		"output_inventory_scope_sha256": outputCatalog.InventoryScopeHash,
 		"output_sha256":                 hashText(selectedOutput), "source_code": selectedOutput,
 		"files": manifestFiles, "renamed_bindings": renamed,
-		"parser_version": runtime.Version(), "scope": "module",
+		"downstream_compatibility": downstreamCompatibility,
+		"parser_version":           runtime.Version(), "scope": "module",
 	}, nil
 }
 

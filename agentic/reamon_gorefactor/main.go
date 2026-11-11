@@ -35,24 +35,26 @@ const maxProjectInventoryEntries = 5000
 const maxRenames = 80
 
 type request struct {
-	Operation     string            `json:"operation"`
-	Source        string            `json:"source_code"`
-	ExpectedHash  string            `json:"expected_sha256"`
-	SourceSetHash string            `json:"source_set_sha256"`
-	SelectedPath  string            `json:"selected_path"`
-	ModulePath    string            `json:"module_path"`
-	ModuleRoot    string            `json:"module_root"`
-	GoMod         string            `json:"go_mod"`
-	GoModHash     string            `json:"go_mod_sha256"`
-	GoSum         string            `json:"go_sum"`
-	GoSumHash     string            `json:"go_sum_sha256"`
-	BuildGOOS     string            `json:"build_goos"`
-	BuildGOARCH   string            `json:"build_goarch"`
-	BuildCgo      *bool             `json:"build_cgo_enabled"`
-	BuildTags     []string          `json:"build_tags"`
-	PackagePath   string            `json:"-"`
-	Files         []projectFile     `json:"files"`
-	Renames       []renameSelection `json:"renames"`
+	Operation                 string                     `json:"operation"`
+	Source                    string                     `json:"source_code"`
+	ExpectedHash              string                     `json:"expected_sha256"`
+	SourceSetHash             string                     `json:"source_set_sha256"`
+	SelectedPath              string                     `json:"selected_path"`
+	ModulePath                string                     `json:"module_path"`
+	ModuleRoot                string                     `json:"module_root"`
+	GoMod                     string                     `json:"go_mod"`
+	GoModHash                 string                     `json:"go_mod_sha256"`
+	GoSum                     string                     `json:"go_sum"`
+	GoSumHash                 string                     `json:"go_sum_sha256"`
+	BuildGOOS                 string                     `json:"build_goos"`
+	BuildGOARCH               string                     `json:"build_goarch"`
+	BuildCgo                  *bool                      `json:"build_cgo_enabled"`
+	BuildTags                 []string                   `json:"build_tags"`
+	PackagePath               string                     `json:"-"`
+	Files                     []projectFile              `json:"files"`
+	Renames                   []renameSelection          `json:"renames"`
+	DownstreamModules         []downstreamModuleSnapshot `json:"downstream_modules"`
+	DownstreamModulesComplete bool                       `json:"downstream_modules_complete"`
 }
 
 type projectFile struct {
@@ -64,6 +66,16 @@ type projectFile struct {
 type renameSelection struct {
 	ID      string `json:"binding_id"`
 	NewName string `json:"new_name"`
+}
+
+type downstreamModuleSnapshot struct {
+	ModulePath string        `json:"module_path"`
+	ModuleRoot string        `json:"module_root"`
+	GoMod      string        `json:"go_mod"`
+	GoModHash  string        `json:"go_mod_sha256"`
+	GoSum      string        `json:"go_sum"`
+	GoSumHash  string        `json:"go_sum_sha256"`
+	Files      []projectFile `json:"files"`
 }
 
 type binding struct {

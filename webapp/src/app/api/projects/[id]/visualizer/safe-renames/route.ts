@@ -38,6 +38,23 @@ interface GoModuleInventoryContext {
   sumText: string
 }
 
+interface GoModuleSourceSnapshot {
+  context: GoModuleInventoryContext
+  files: GoPackageRenameFile[]
+}
+
+interface GoDownstreamModuleCheck {
+  module_path: string
+  module_root: string
+  go_mod: string
+  go_mod_sha256: string
+  go_sum: string
+  go_sum_sha256: string
+  files: Array<{ relative_path: string; source_code: string; expected_sha256: string }>
+}
+
+class GoModuleCompatibilityError extends Error {}
+
 function plainObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
@@ -113,6 +130,45 @@ async function loadGoModuleInventoryContext(
     }
   }
   return { modulePath, moduleRoot, manifestSha256, manifestText: text, sumSha256, sumText }
+}
+
+async function loadGoModuleSourceSnapshots(
+  artifactWhere: Prisma.ArtifactWhereInput,
+  files: GoPackageRenameFile[],
+): Promise<{ modules: GoModuleSourceSnapshot[]; unassignedPaths: string[] }> {
+  const manifests = await prisma.artifact.findMany({
+    where: { ...artifactWhere, relativePath: { endsWith: 'go.mod', mode: 'insensitive' } },
+    orderBy: [{ relativePath: 'asc' }, { id: 'asc' }], take: 128,
+    select: { relativePath: true },
+  })
+  const roots = [...new Set(manifests.map((manifest) => goModuleRoot(manifest.relativePath)))].sort((left, right) => right.length - left.length)
+  const grouped = new Map(roots.map((root) => [root, [] as GoPackageRenameFile[]]))
+  const unassignedPaths: string[] = []
+  for (const file of files) {
+    const root = roots.find((candidate) => !candidate || file.relativePath.startsWith(`${candidate}/`))
+    if (root === undefined) {
+      unassignedPaths.push(file.relativePath)
+      continue
+    }
+    grouped.get(root)?.push(file)
+  }
+  const modules: GoModuleSourceSnapshot[] = []
+  for (const [root, moduleFiles] of grouped) {
+    if (!moduleFiles.length) continue
+    let context: GoModuleInventoryContext
+    try {
+      context = await loadGoModuleInventoryContext(artifactWhere, moduleFiles.map((file) => file.relativePath))
+    } catch {
+      unassignedPaths.push(...moduleFiles.map((file) => file.relativePath))
+      continue
+    }
+    if (context.moduleRoot !== root || !context.modulePath || !context.manifestSha256) {
+      unassignedPaths.push(...moduleFiles.map((file) => file.relativePath))
+      continue
+    }
+    modules.push({ context, files: moduleFiles })
+  }
+  return { modules, unassignedPaths }
 }
 
 function isInside(root: string, file: string): boolean {
@@ -326,6 +382,7 @@ interface GoProjectRenameResult extends SafeRenameResult {
   inventoryScopeSha256?: string
   outputInventoryScopeSha256?: string
   scope: 'project' | 'module'
+  downstreamCompatibility?: { status: 'not_required' | 'not_supplied' | 'no_consumers' | 'incomplete' | 'partial' | 'checked'; checkedModules: number; buildGOOS?: string; buildGOARCH?: string }
   projectFiles: Array<{ relativePath: string; sourceCode: string; inputSha256: string; outputSha256: string; edits: Array<{ start: number; end: number; oldText: string; newText: string }> }>
 }
 
@@ -719,6 +776,8 @@ async function applyGoProjectRenameBindings(
   renames: GoProjectRenameSelection[],
   renameScope: 'project' | 'module' = 'project',
   expectedInventoryScopeSha256?: string,
+  downstreamModules: GoDownstreamModuleCheck[] = [],
+  downstreamModulesComplete = false,
 ): Promise<GoProjectRenameResult> {
   const selected = files.find((file) => file.relativePath === selectedPath)
   if (!selected) throw new Error('Selected Go source is missing from the verified package snapshot')
@@ -735,6 +794,7 @@ async function applyGoProjectRenameBindings(
       go_mod: module.manifestText, go_mod_sha256: module.manifestSha256,
       go_sum: module.sumText, go_sum_sha256: module.sumSha256,
       files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
+      ...(renameScope === 'module' ? { downstream_modules: downstreamModules, downstream_modules_complete: downstreamModulesComplete } : {}),
       renames: renames.map((rename) => ({ binding_id: rename.bindingId, new_name: rename.newName })),
     }),
   }, { timeoutMs: 60_000 })
@@ -746,6 +806,15 @@ async function applyGoProjectRenameBindings(
   const projectFiles = Array.isArray(payload?.files) ? payload.files : []
   const payloadInventoryScopeSha256 = typeof payload?.inventory_scope_sha256 === 'string' ? payload.inventory_scope_sha256 : ''
   const outputInventoryScopeSha256 = typeof payload?.output_inventory_scope_sha256 === 'string' ? payload.output_inventory_scope_sha256 : ''
+  const rawDownstreamCompatibility = plainObject(payload?.downstream_compatibility)
+  const downstreamStatus = rawDownstreamCompatibility.status
+  const downstreamCheckedModules = rawDownstreamCompatibility.checked_modules
+  const downstreamCompatibilityValid = ['not_required', 'not_supplied', 'no_consumers', 'incomplete', 'partial', 'checked'].includes(String(downstreamStatus))
+    && Number.isSafeInteger(downstreamCheckedModules) && Number(downstreamCheckedModules) >= 0
+  if (renameScope === 'module' && !response.ok && typeof payload?.error === 'string'
+      && (payload.error.startsWith('Go rename breaks downstream module') || payload.error.startsWith('cannot verify downstream compatibility'))) {
+    throw new GoModuleCompatibilityError(payload.error)
+  }
   const expectedByPath = new Map(files.map((file) => [file.relativePath, file]))
   const seenPaths = new Set<string>()
   const renamePairs = new Set(renames.map((rename) => `${rename.oldName}\0${rename.newName}`))
@@ -811,7 +880,7 @@ async function applyGoProjectRenameBindings(
       || payload?.source_set_sha256 !== expectedSourceSetSha256
       || payload?.output_source_set_sha256 !== computedOutputSourceSetSha256
       || (renameScope === 'module' && (payloadInventoryScopeSha256 !== expectedInventoryScopeSha256
-        || !/^[a-f0-9]{64}$/i.test(outputInventoryScopeSha256)))
+        || !/^[a-f0-9]{64}$/i.test(outputInventoryScopeSha256) || !downstreamCompatibilityValid))
       || !/^[a-f0-9]{64}$/i.test(outputSha256) || digest(Buffer.from(output, 'utf8')) !== outputSha256
       || output !== selectedOutput || !/^go\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.-]+)?$/.test(parserVersion)
       || renamed.length !== renames.length || renamedById.size !== renamed.length || !renames.every((rename) => {
@@ -827,6 +896,12 @@ async function applyGoProjectRenameBindings(
     sourceSetSha256: expectedSourceSetSha256,
     outputSourceSetSha256: String(payload.output_source_set_sha256), scope: renameScope,
     ...(renameScope === 'module' ? { inventoryScopeSha256: payloadInventoryScopeSha256, outputInventoryScopeSha256 } : {}),
+    ...(renameScope === 'module' ? { downstreamCompatibility: {
+      status: downstreamStatus as NonNullable<GoProjectRenameResult['downstreamCompatibility']>['status'],
+      checkedModules: Number(downstreamCheckedModules),
+      ...(typeof rawDownstreamCompatibility.build_goos === 'string' ? { buildGOOS: rawDownstreamCompatibility.build_goos } : {}),
+      ...(typeof rawDownstreamCompatibility.build_goarch === 'string' ? { buildGOARCH: rawDownstreamCompatibility.build_goarch } : {}),
+    } } : {}),
     projectFiles: validatedFiles,
   }
 }
@@ -1341,6 +1416,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     let goProjectCatalog: GoProjectRenameCatalog | null = null
     let goProjectInventoryError: string | null = null
     let goProjectInventorySourceSetSha256: string | null = null
+    let goDownstreamModules: GoDownstreamModuleCheck[] = []
+    let goDownstreamModulesComplete = false
     let goProjectModuleContext: GoModuleInventoryContext = { modulePath: '', moduleRoot: '', manifestSha256: '', manifestText: '', sumSha256: '', sumText: '' }
     if (projectGoRename) {
       if (!isGo) return NextResponse.json({ error: 'Cross-file and module-wide renaming are currently supported only for Go.' }, { status: 415 })
@@ -1359,9 +1436,29 @@ export async function POST(request: Request, { params }: RouteParams) {
             selectedUnitId: observation.id, selectedPath: relativePath, selectedSource: workingSource,
             selectedArtifactSourceSha256: artifactSourceSha256,
           })
-          goProjectModuleContext = await loadGoModuleInventoryContext(
-            selection.artifactWhere, goProjectSourceFiles.map((file) => file.relativePath),
-          )
+          if (moduleGo) {
+            const snapshots = await loadGoModuleSourceSnapshots(selection.artifactWhere, goProjectSourceFiles)
+            const target = snapshots.modules.find((module) => module.files.some((file) => file.relativePath === relativePath))
+            if (!target) throw new GoPackageRenameSnapshotError('The selected Go source is not covered by a verified module manifest.')
+            goProjectModuleContext = target.context
+            goDownstreamModules = snapshots.modules.filter((module) => module !== target).map(({ context, files }) => ({
+              module_path: context.modulePath,
+              module_root: context.moduleRoot,
+              go_mod: context.manifestText,
+              go_mod_sha256: context.manifestSha256,
+              go_sum: context.sumText,
+              go_sum_sha256: context.sumSha256,
+              files: files.map((file) => ({ relative_path: file.relativePath, source_code: file.sourceCode, expected_sha256: file.sourceHash })),
+            }))
+            const assignedPaths = new Set(snapshots.modules.flatMap((module) => module.files.map((file) => file.relativePath)))
+            goDownstreamModulesComplete = snapshots.unassignedPaths.length === 0
+              && goProjectSourceFiles.every((file) => assignedPaths.has(file.relativePath))
+            goProjectSourceFiles = target.files
+          } else {
+            goProjectModuleContext = await loadGoModuleInventoryContext(
+              selection.artifactWhere, goProjectSourceFiles.map((file) => file.relativePath),
+            )
+          }
         } catch (inventoryError) {
           if (moduleGo) {
             const status = inventoryError instanceof GoPackageRenameSnapshotError ? inventoryError.status : 409
@@ -1742,6 +1839,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       ? await applyGoProjectRenameBindings(
         goRenameFiles, goProjectCatalog.selectedPath, workingSourceSha256, goProjectCatalog.sourceSetSha256,
         goProjectModuleContext, selectedProjectRenames, moduleGo ? 'module' : 'project', goProjectCatalog.inventoryScopeSha256,
+        goDownstreamModules, goDownstreamModulesComplete,
       )
       : isJava
       ? await refactorJavaBindings(workingSource, 'rename', workingSourceSha256, selectedRenames) as SafeRenameResult
@@ -1815,8 +1913,21 @@ export async function POST(request: Request, { params }: RouteParams) {
         rationale: String(plainObject(requests.find((rename) => plainObject(rename).bindingId === binding.bindingId)).rationale || '').slice(0, 400),
       }))
       const validationMethod = `${projectTransform.parserVersion}+go-types-${moduleGo ? 'module' : 'package'}-binding-identity`
+      const downstreamCompatibility = projectTransform.downstreamCompatibility
+      const downstreamMessage = !moduleGo ? ''
+        : downstreamCompatibility?.status === 'checked'
+          ? ` Go type-checked ${downstreamCompatibility.checkedModules} discovered downstream module(s) against the original and renamed API for ${downstreamCompatibility.buildGOOS}/${downstreamCompatibility.buildGOARCH}; all passed.`
+          : downstreamCompatibility?.status === 'no_consumers'
+            ? ' The complete supplied Go source inventory contains no downstream module importing this module.'
+            : downstreamCompatibility?.status === 'partial'
+              ? ` Go type-checked ${downstreamCompatibility.checkedModules} discovered downstream module(s), but some Go source files could not be assigned to a verified module.`
+              : downstreamCompatibility?.status === 'incomplete'
+                ? ' Downstream compatibility is incomplete because some Go source files could not be assigned to a verified module.'
+                : downstreamCompatibility?.status === 'not_required'
+                  ? ' No exported method was renamed, so downstream compatibility checking was not required.'
+                  : ' No downstream source snapshot was available for compatibility checking.'
       const validationMessage = moduleGo
-        ? `Go ${projectTransform.parserVersion} type-checked the complete supplied module snapshot before and after renaming and verified every edited reference still resolves to the renamed method. All changed files are unaccepted review drafts. Downstream consumers outside this module, builds, and runtime behavior were not checked.`
+        ? `Go ${projectTransform.parserVersion} type-checked the complete supplied module snapshot before and after renaming and verified every edited reference still resolves to the renamed method.${downstreamMessage} Source outside this workspace, builds, and runtime behavior were not checked. All changed files are unaccepted review drafts.`
         : `Go ${projectTransform.parserVersion} type-checked the complete same-package snapshot before and after renaming and verified every edited reference still resolves to the original package object. Sources were saved as separate unaccepted drafts; compilation dependencies and runtime behavior were not checked.`
       const projectChanges = await prisma.$transaction(async (tx) => {
         const saved: Array<{ unitId: string; relativePath: string; unitName: string; attemptId: string; draftId: string; updatedAt: string; outputSha256: string; editCount: number }> = []
@@ -1839,6 +1950,7 @@ export async function POST(request: Request, { params }: RouteParams) {
                 outputSha256: outputFile.outputSha256, sourceSetSha256: projectTransform.sourceSetSha256,
                 outputSourceSetSha256: projectTransform.outputSourceSetSha256, suggestionAttemptId: suggestionAttempt.id,
                 renames: renameMetadata, edits: outputFile.edits,
+                downstreamCompatibility: projectTransform.downstreamCompatibility ?? null,
               },
               resultSource: outputFile.sourceCode, syntaxValidated: true,
               validationStatus: 'PASSED', validationMethod, validationMessage,
@@ -1884,6 +1996,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         projectChanges,
         sourceSetSha256: projectTransform.sourceSetSha256,
         outputSourceSetSha256: projectTransform.outputSourceSetSha256,
+        downstreamCompatibility: projectTransform.downstreamCompatibility ?? null,
       }, { headers: { 'Cache-Control': 'private, no-store' } })
     }
     const attempt = await prisma.reamonCodeAttempt.create({
@@ -1938,6 +2051,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       validationMessage,
     }, { headers: { 'Cache-Control': 'private, no-store' } })
   } catch (error) {
+    if (error instanceof GoModuleCompatibilityError) {
+      return NextResponse.json({ error: error.message }, { status: 409, headers: { 'Cache-Control': 'no-store' } })
+    }
     console.error('Failed to apply REAmon safe renames:', error)
     return NextResponse.json({ error: error instanceof Error ? error.message.slice(0, 500) : 'Could not process safe rename request' }, { status: 500, headers: { 'Cache-Control': 'no-store' } })
   }

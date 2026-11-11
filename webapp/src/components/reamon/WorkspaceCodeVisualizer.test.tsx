@@ -811,7 +811,7 @@ describe('WorkspaceCodeVisualizer', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: /Include every Go package in the module/ }))
-    expect(screen.getByRole('status')).toHaveTextContent(/may change the public Go API/)
+    expect(screen.getByRole('status')).toHaveTextContent(/change the public Go API/)
     const suggestButton = await screen.findByRole('button', { name: 'Suggest scope-safe renames' })
     await waitFor(() => expect(suggestButton).toBeEnabled())
     fireEvent.click(suggestButton)

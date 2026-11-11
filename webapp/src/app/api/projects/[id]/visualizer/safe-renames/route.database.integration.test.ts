@@ -295,6 +295,7 @@ describe.skipIf(!enabled)('Go package rename against PostgreSQL', () => {
           output_source_set_sha256: sourceSetHash(inputs.map((file) => ({ relativePath: file.relativePath, sourceCode: outputSources.get(file.relativePath) ?? file.sourceCode }))),
           output_sha256: hash(moduleSelectedOutput), source_code: moduleSelectedOutput,
           parser_version: 'go1.25.0', inventory_scope_sha256: 'a'.repeat(64), output_inventory_scope_sha256: 'b'.repeat(64),
+          downstream_compatibility: { status: 'no_consumers', checked_modules: 0 },
           renamed_bindings: renamed, files: editedFiles,
         })
       }
