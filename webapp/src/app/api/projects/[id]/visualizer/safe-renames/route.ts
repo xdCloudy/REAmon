@@ -584,7 +584,8 @@ async function listGoModuleRenameBindings(
   const sourceSetSha256 = hashGoPackageSourceSet(files)
   const validBindings = bindings.every((binding) => /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
     && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
-    && binding.kind === 'method' && binding.scopeType === 'member'
+    && ((binding.kind === 'method' && binding.scopeType === 'member')
+      || (binding.kind === 'file import alias' && binding.scopeType === 'file' && binding.exported === false))
     && binding.relativePath === selectedPath
     && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
     && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0

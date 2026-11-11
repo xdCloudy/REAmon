@@ -186,18 +186,45 @@ func (catalog *projectModuleCatalog) collectMethodBindings() {
 		}
 		for identifier, object := range packageCatalog.Info.Defs {
 			method, ok := object.(*types.Func)
-			if !ok || method.Signature().Recv() == nil || method.Pkg() != packageCatalog.Package {
+			if ok && method.Signature().Recv() != nil && method.Pkg() == packageCatalog.Package {
+				position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
+				if position.Filename == catalog.SelectedPath {
+					methods[method] = binding{
+						FilePath: position.Filename, Name: identifier.Name, Kind: "method", ScopeType: "member",
+						DeclarationStart: position.Offset, Exported: token.IsExported(identifier.Name),
+						Object: method, Scope: packageCatalog.Package.Scope(), Declaration: identifier,
+					}
+				}
+				continue
+			}
+			alias, ok := object.(*types.PkgName)
+			if !ok || alias.Name() == "_" || alias.Name() == "." {
 				continue
 			}
 			position := packageCatalog.FileSet.PositionFor(identifier.Pos(), false)
 			if position.Filename != catalog.SelectedPath {
 				continue
 			}
-			methods[method] = binding{
-				FilePath: position.Filename, Name: identifier.Name, Kind: "method", ScopeType: "member",
-				DeclarationStart: position.Offset, Exported: token.IsExported(identifier.Name),
-				Object: method, Scope: packageCatalog.Package.Scope(), Declaration: identifier,
+			uses := []*ast.Ident{identifier}
+			for use, used := range packageCatalog.Info.Uses {
+				if used == alias {
+					uses = append(uses, use)
+				}
 			}
+			if len(uses) <= 1 {
+				continue
+			}
+			sort.Slice(uses[1:], func(i, j int) bool {
+				return packageCatalog.FileSet.PositionFor(uses[i+1].Pos(), false).Offset < packageCatalog.FileSet.PositionFor(uses[j+1].Pos(), false).Offset
+			})
+			item := binding{
+				ID:       shortID(catalog.InventoryScopeHash+"\x00"+position.Filename, position.Offset, identifier.Name),
+				FilePath: position.Filename, Name: identifier.Name, Kind: "file import alias", ScopeType: "file",
+				DeclarationStart: position.Offset, ReferenceCount: len(uses) - 1,
+				Object: alias, Scope: alias.Parent(), Declaration: identifier, Uses: uses,
+			}
+			catalog.BindingByID[item.ID] = item
+			catalog.Bindings = append(catalog.Bindings, item)
 		}
 	}
 	for method, item := range methods {
@@ -287,7 +314,7 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 			token.Lookup(rename.NewName).IsKeyword() || rename.NewName == item.Name {
 			return nil, fmt.Errorf("A selected Go rename no longer matches a binding in the module snapshot")
 		}
-		if token.IsExported(rename.NewName) != token.IsExported(item.Name) {
+		if item.Kind == "method" && token.IsExported(rename.NewName) != token.IsExported(item.Name) {
 			return nil, fmt.Errorf("Go rename cannot change whether method %s is exported", item.Name)
 		}
 		if types.Universe.Lookup(rename.NewName) != nil {
@@ -298,7 +325,21 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		selected = append(selected, projectRenameChoice{item: item, newName: rename.NewName})
 	}
 	methodTargets := make(map[types.Object]map[string]bool)
+	fileAliasTargets := make(map[string]map[string]bool)
 	for _, choice := range selected {
+		if choice.item.ScopeType == "file" && choice.item.Kind == "file import alias" {
+			if fileAliasTargets[choice.item.FilePath] == nil {
+				fileAliasTargets[choice.item.FilePath] = make(map[string]bool)
+			}
+			if fileAliasTargets[choice.item.FilePath][choice.newName] {
+				return nil, fmt.Errorf("Two import aliases in the same Go file cannot share a new name")
+			}
+			fileAliasTargets[choice.item.FilePath][choice.newName] = true
+			if existing := choice.item.Object.Parent().Lookup(choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+				return nil, fmt.Errorf("Renaming %s to %s would collide with an import alias in the same file", choice.item.Name, choice.newName)
+			}
+			continue
+		}
 		receiver, ok := receiverNamedObject(choice.item.Object)
 		if !ok {
 			return nil, fmt.Errorf("The receiver type for method %s could not be resolved", choice.item.Name)
@@ -385,7 +426,7 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		outputPackage := outputCatalog.CatalogByFile[declarationPosition.Filename]
 		renamedObject := outputPackage.Info.Defs[declaration]
 		if declaration == nil || renamedObject == nil || declaration.Name != choice.newName {
-			return nil, fmt.Errorf("Go could not resolve the renamed method declaration for %s", choice.item.Name)
+			return nil, fmt.Errorf("Go could not resolve the renamed declaration for %s", choice.item.Name)
 		}
 		for _, original := range choice.item.Uses {
 			originalPackage := catalog.IdentifierCatalog[original]
@@ -400,7 +441,7 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 				resolved = resolvedPackage.Info.Uses[transformed]
 			}
 			if transformed == nil || transformed.Name != choice.newName || resolved != renamedObject {
-				return nil, fmt.Errorf("Renaming %s would change a module method binding in %s", choice.item.Name, position.Filename)
+				return nil, fmt.Errorf("Renaming %s would change a module binding in %s", choice.item.Name, position.Filename)
 			}
 		}
 	}
