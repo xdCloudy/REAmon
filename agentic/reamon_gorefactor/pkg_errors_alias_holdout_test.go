@@ -19,6 +19,7 @@ type pkgErrorsAliasHoldout struct {
 	LicenseFixture   string                        `json:"license_fixture_path"`
 	LicenseSHA256    string                        `json:"license_sha256"`
 	Files            []projectInventoryFixtureFile `json:"files"`
+	Controls         []projectInventoryFixtureFile `json:"controls"`
 	BuildContexts    []projectModuleRenameBuild    `json:"build_contexts"`
 	AliasName        string                        `json:"alias_name"`
 	SelectedPath     string                        `json:"selected_path"`
@@ -39,7 +40,7 @@ func TestProjectModuleImportAliasPinnedPkgErrorsV091(t *testing.T) {
 		corpus.SourceCommit != "614d223910a179a466c1767a985424175c39b465" ||
 		corpus.ModuleSum != "h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=" ||
 		corpus.AliasName != "stderrors" || corpus.SelectedPath != "go113.go" || corpus.ExpectedRefs != 3 ||
-		len(corpus.BuildContexts) != 3 || len(corpus.Files) != 3 {
+		len(corpus.BuildContexts) != 3 || len(corpus.Files) != 3 || len(corpus.Controls) != 1 {
 		t.Fatalf("pinned pkg/errors alias corpus identity = %+v", corpus)
 	}
 	readVerified := func(relativePath, expectedHash string) []byte {
@@ -57,6 +58,10 @@ func TestProjectModuleImportAliasPinnedPkgErrorsV091(t *testing.T) {
 	readVerified(corpus.LicenseFixture, corpus.LicenseSHA256)
 	files := make([]projectFile, 0, len(corpus.Files))
 	for _, source := range corpus.Files {
+		contents := readVerified(source.FixturePath, source.SHA256)
+		files = append(files, projectFile{Path: source.InventoryPath, Source: string(contents), ExpectedHash: source.SHA256})
+	}
+	for _, source := range corpus.Controls {
 		contents := readVerified(source.FixturePath, source.SHA256)
 		files = append(files, projectFile{Path: source.InventoryPath, Source: string(contents), ExpectedHash: source.SHA256})
 	}
@@ -126,7 +131,8 @@ func TestProjectModuleImportAliasPinnedPkgErrorsV091(t *testing.T) {
 			t.Fatalf("pinned pkg/errors output for %s differs from reported byte spans", filePath)
 		}
 	}
-	if len(outputs) != 1 || editCount != corpus.ExpectedRefs+1 || outputs[corpus.SelectedPath] == "" {
+	if len(outputs) != 1 || outputs[corpus.SelectedPath] == "" || outputs["alias_noise.go"] != "" ||
+		editCount != corpus.ExpectedRefs+1 {
 		t.Fatalf("pinned pkg/errors alias outputs/edits = %d/%d; want one file and 4 edits", len(outputs), editCount)
 	}
 	renamed := make([]projectFile, len(files))
@@ -147,7 +153,7 @@ func TestProjectModuleImportAliasPinnedPkgErrorsV091(t *testing.T) {
 	}
 	assertPkgErrorsBehavior(t, files, goMod, "original")
 	assertPkgErrorsBehavior(t, renamed, goMod, "renamed")
-	t.Logf("held-out pkg/errors v0.9.1 alias census: declarations TP=1 FP=0 FN=0; references TP=3 FP=0 FN=0; exact edits=4")
+	t.Logf("held-out pkg/errors v0.9.1 alias census: declarations TP=1 FP=0 FN=0; references TP=3 FP=0 FN=0; exact edits=4; same-name local selector and string controls unchanged")
 }
 
 func assertPkgErrorsBuild(t *testing.T, files []projectFile, goMod string, build projectModuleRenameBuild) {

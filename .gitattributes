@@ -19,6 +19,9 @@ tooling/benchmarks/**/requirements.txt text eol=lf
 tooling/benchmarks/**/LICENSE text eol=lf
 # Go inventory holdout source and manifests are SHA-256-pinned across hosts.
 agentic/reamon_gorefactor/testdata/project_inventory_holdout_v1/** text eol=lf
+# Explicit-alias upstream source, license, and synthetic controls are SHA-256-pinned.
+agentic/reamon_gorefactor/testdata/upstream_pkg_errors_v0_9_1/** text eol=lf
+agentic/reamon_gorefactor/testdata/project_alias_holdout_controls/** text eol=lf
 # Recovered JVM source and textual benchmark outputs carry exact hash provenance.
 tooling/benchmarks/**/runs/**/*.java text eol=lf
 tooling/benchmarks/**/runs/**/*.tsv text eol=lf

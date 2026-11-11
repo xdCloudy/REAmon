@@ -24,6 +24,13 @@
       "sha256": "ee30b2b9525acc7749abb992f150e6d5673c63c1ef8c30620ec70eed11abec35"
     }
   ],
+  "controls": [
+    {
+      "fixture_path": "project_alias_holdout_controls/pkg_errors_alias_noise.go",
+      "inventory_path": "alias_noise.go",
+      "sha256": "6d66641d748ba7a84205e5ea8f8428d1418e2eeb5db987064ecca5a04e3b078b"
+    }
+  ],
   "build_contexts": [
     { "goos": "linux", "goarch": "amd64" },
     { "goos": "windows", "goarch": "amd64" },
