@@ -1443,85 +1443,117 @@ func assertGorillaModuleBehavior(t *testing.T, files map[string]string, goMod, r
 func TestProjectModuleExportedMethodRenameBreaksDownstreamConsumer(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
 	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n\nreplace example.test/app => ../app\n"
-	consumerSource := "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n"
+	consumerSources := map[string]string{
+		"consumer_linux_amd64.go":   "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n",
+		"consumer_windows_amd64.go": "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n",
+		"consumer_linux_arm64.go":   "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() int { return pkg.Worker{}.Do() }\n",
+	}
 	files := []projectFile{{
 		Path:   "pkg/api.go",
 		Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n",
 	}}
-	request := goProjectRequest(files, "pkg/api.go")
-	request.Operation = "project_module_bindings"
-	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
-	bindingsResult, err := listProjectModuleBindings(request)
-	if err != nil {
-		t.Fatalf("list module method bindings: %v", err)
-	}
-	var selected binding
-	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
-		if raw["name"] == "Do" {
-			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
-			break
-		}
-	}
-	if selected.ID == "" || !selected.Exported {
-		t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
-	}
-	assertDownstreamGoModuleBuild(t, goMod, map[string]string{"pkg/api.go": files[0].Source}, consumerMod, consumerSource, true)
-
-	request.Operation = "project_module_rename"
-	request.ExpectedHash = bindingsResult["source_sha256"].(string)
-	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
-	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
-	request.DownstreamModules = []downstreamModuleSnapshot{{
-		ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
-		Files: []projectFile{{Path: "consumer.go", Source: consumerSource}},
-	}}
-	request.DownstreamModulesComplete = true
-	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "Go rename breaks downstream module example.test/consumer") || !strings.Contains(err.Error(), "Do") {
-		t.Fatalf("downstream compatibility check error = %v; want a rejection identifying the broken Do reference", err)
+	for _, target := range []struct{ goos, goarch string }{
+		{goos: "linux", goarch: "amd64"},
+		{goos: "windows", goarch: "amd64"},
+		{goos: "linux", goarch: "arm64"},
+	} {
+		t.Run(target.goos+"/"+target.goarch, func(t *testing.T) {
+			targetRequest := goProjectRequest(files, "pkg/api.go")
+			targetRequest.BuildGOOS, targetRequest.BuildGOARCH = target.goos, target.goarch
+			targetRequest.Operation = "project_module_bindings"
+			targetRequest.ModulePath, targetRequest.GoMod, targetRequest.GoModHash = "example.test/app", goMod, hashText(goMod)
+			bindingsResult, err := listProjectModuleBindings(targetRequest)
+			if err != nil {
+				t.Fatalf("list module method bindings: %v", err)
+			}
+			var selected binding
+			for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+				if raw["name"] == "Do" {
+					selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported {
+				t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
+			}
+			targetRequest.Operation = "project_module_rename"
+			targetRequest.ExpectedHash = bindingsResult["source_sha256"].(string)
+			targetRequest.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+			targetRequest.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+			downstreamFiles := make([]projectFile, 0, len(consumerSources))
+			for filePath, source := range consumerSources {
+				downstreamFiles = append(downstreamFiles, projectFile{Path: filePath, Source: source, ExpectedHash: hashText(source)})
+			}
+			targetRequest.DownstreamModules = []downstreamModuleSnapshot{{
+				ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
+				Files: downstreamFiles,
+			}}
+			targetRequest.DownstreamModulesComplete = true
+			if _, err := applyProjectModuleRenames(targetRequest); err == nil || !strings.Contains(err.Error(), "Go rename breaks downstream module example.test/consumer") || !strings.Contains(err.Error(), "Do") {
+				t.Fatalf("downstream compatibility check error = %v; want a rejection identifying the broken Do reference", err)
+			}
+		})
 	}
 }
 
 func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *testing.T) {
 	goMod := "module example.test/app\n\ngo 1.25\n"
 	consumerMod := "module example.test/consumer\n\ngo 1.25\n\nrequire example.test/app v0.0.0\n"
-	consumerSource := "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n"
+	consumerSources := map[string]string{
+		"consumer_linux_amd64.go":   "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+		"consumer_windows_amd64.go": "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+		"consumer_linux_arm64.go":   "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+	}
 	files := []projectFile{{
 		Path:   "pkg/api.go",
 		Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n",
 	}}
-	request := goProjectRequest(files, "pkg/api.go")
-	request.Operation = "project_module_bindings"
-	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
-	bindingsResult, err := listProjectModuleBindings(request)
-	if err != nil {
-		t.Fatalf("list module method bindings: %v", err)
-	}
-	var selected binding
-	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
-		if raw["name"] == "Do" {
-			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
-			break
-		}
-	}
-	if selected.ID == "" || !selected.Exported {
-		t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
-	}
-	request.Operation = "project_module_rename"
-	request.ExpectedHash = bindingsResult["source_sha256"].(string)
-	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
-	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
-	request.DownstreamModules = []downstreamModuleSnapshot{{
-		ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
-		Files: []projectFile{{Path: "consumer.go", Source: consumerSource, ExpectedHash: hashText(consumerSource)}},
-	}}
-	request.DownstreamModulesComplete = true
-	result, err := applyProjectModuleRenames(request)
-	if err != nil {
-		t.Fatalf("rename with compatible downstream consumer: %v", err)
-	}
-	compatibility := result["downstream_compatibility"].(map[string]any)
-	if compatibility["status"] != "checked" || compatibility["checked_modules"] != 1 {
-		t.Fatalf("downstream compatibility receipt = %#v; want one type-checked consumer module", compatibility)
+	for _, target := range []struct{ goos, goarch string }{
+		{goos: "linux", goarch: "amd64"},
+		{goos: "windows", goarch: "amd64"},
+		{goos: "linux", goarch: "arm64"},
+	} {
+		t.Run(target.goos+"/"+target.goarch, func(t *testing.T) {
+			targetRequest := goProjectRequest(files, "pkg/api.go")
+			targetRequest.BuildGOOS, targetRequest.BuildGOARCH = target.goos, target.goarch
+			targetRequest.Operation = "project_module_bindings"
+			targetRequest.ModulePath, targetRequest.GoMod, targetRequest.GoModHash = "example.test/app", goMod, hashText(goMod)
+			bindingsResult, err := listProjectModuleBindings(targetRequest)
+			if err != nil {
+				t.Fatalf("list module method bindings: %v", err)
+			}
+			var selected binding
+			for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+				if raw["name"] == "Do" {
+					selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported {
+				t.Fatalf("downstream API method binding = %+v; want exported Do method", selected)
+			}
+			targetRequest.Operation = "project_module_rename"
+			targetRequest.ExpectedHash = bindingsResult["source_sha256"].(string)
+			targetRequest.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+			targetRequest.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+			downstreamFiles := make([]projectFile, 0, len(consumerSources))
+			for filePath, source := range consumerSources {
+				downstreamFiles = append(downstreamFiles, projectFile{Path: filePath, Source: source, ExpectedHash: hashText(source)})
+			}
+			targetRequest.DownstreamModules = []downstreamModuleSnapshot{{
+				ModulePath: "example.test/consumer", GoMod: consumerMod, GoModHash: hashText(consumerMod),
+				Files: downstreamFiles,
+			}}
+			targetRequest.DownstreamModulesComplete = true
+			result, err := applyProjectModuleRenames(targetRequest)
+			if err != nil {
+				t.Fatalf("rename with compatible downstream consumer: %v", err)
+			}
+			compatibility := result["downstream_compatibility"].(map[string]any)
+			if compatibility["status"] != "checked" || compatibility["checked_modules"] != 1 || compatibility["build_goos"] != target.goos || compatibility["build_goarch"] != target.goarch {
+				t.Fatalf("downstream compatibility receipt = %#v; want one type-checked consumer module for %s/%s", compatibility, target.goos, target.goarch)
+			}
+		})
 	}
 }
 
