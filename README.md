@@ -78,9 +78,9 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <!-- REAMON_PRODUCT_PROGRESS_START -->
 
-<progress value="34.54" max="100">34.54%</progress> <strong>34.54%</strong> — weighted estimate **34.54%**.
+<progress value="34.61" max="100">34.61%</progress> <strong>34.61%</strong> — weighted estimate **34.61%**.
 
-Latest evidence-based score change (2026-11-11): **+0.07 points** (34.47% → 34.54%). A second versioned held-out google/uuid v1.6.0 negative case now rejects UUID.UnmarshalBinary-to-DecodeBinary because the method implements encoding.BinaryUnmarshaler, including when encoding appears only in a doc comment. The helper now loads encoding interfaces for contract checks and preserves Go’s predeclared error interface; focused tests also reject breaking Error(). Full Go refactor package suite passes (43.474s), with both UUID negative cases checked under Linux/amd64, Windows/amd64, and Linux/arm64. This adds 0.07 weighted points (34.47% to 34.54%) to cross-file semantic rename propagation (17% to 18%). Arbitrary interface discovery and downstream-consumer analysis remain open.
+Latest evidence-based score change (2026-11-11): **+0.07 points** (34.54% → 34.61%). A second hash-pinned positive gorilla/mux v1.8.1 module case renames Route.Path on a distinct receiver type. Three resolved in-module references produce exact edits to the declaration in route.go and calls in mux.go; original and renamed modules pass the same route-matching oracle under Linux/amd64 and Windows/amd64. The full Go refactor package suite passes (48.874s). This adds 0.07 weighted points (34.54% to 34.61%) to cross-file semantic rename propagation (18% to 19%). Broad held-out accuracy, arbitrary interfaces, and downstream-consumer compatibility remain open.
 
 **Work completed (2026-11-11):**
 
@@ -112,12 +112,13 @@ Latest evidence-based score change (2026-11-11): **+0.07 points** (34.47% → 34
 - A versioned held-out gorilla/mux v1.8.1 module rename fixture passes under Linux/amd64 and Windows/amd64. Hash-pinned Router.NewRoute has 12 resolved in-module references; the helper produces exactly 13 byte-exact edits in mux.go with no unrelated-file edits. Original and renamed modules pass the same route matching behavior oracle, and the full Go refactor package suite passes. This adds one partial point to cross-file propagation (15% to 16%; 34.33% to 34.40%); broader held-out accuracy and automatic external-consumer checks remain open.
 - A versioned held-out google/uuid v1.6.0 module negative control catalogs exported UUID.String with three resolved in-module references and rejects String-to-Text because it breaks imported fmt.Stringer. The rejection passes under Linux/amd64, Windows/amd64, and Linux/arm64; the full Go refactor package suite passes. This adds one partial point to cross-file propagation (16% to 17%; 34.40% to 34.47%), while broader interface compatibility and external-consumer analysis remain open.
 - A second pinned google/uuid v1.6.0 module negative case now rejects UUID.UnmarshalBinary-to-DecodeBinary because it implements encoding.BinaryUnmarshaler even though encoding appears only in a doc comment. The helper loads standard encoding interfaces into contract checks and includes Go’s predeclared error interface; focused UUID rejection tests pass on Linux/amd64, Windows/amd64, and Linux/arm64, and a built-in Error() regression passes. The complete Go refactor package suite passes under Go 1.25 (43.474s).
+- Expanded the hash-pinned gorilla/mux v1.8.1 held-out module rename corpus with Route.Path on a distinct receiver type: 3 resolved references produce exact declaration/call edits across route.go and mux.go under Linux/amd64 and Windows/amd64, and the same route-matching oracle passes on original and renamed sources. Full Go refactor package suite passes under Go 1.25 (48.874s).
 
-**Score decision:** Cross-file semantic rename propagation advances from 17% to 18% for the second independently pinned standard-interface negative case; the weighted estimate rises from 34.47% to 34.54% (+0.07 points). Credit is limited to the tested encoding and built-in error contracts; arbitrary interface compatibility and external consumers remain open.
+**Score decision:** Cross-file semantic rename propagation advances from 18% to 19% for the second positive held-out receiver-method case, with exact cross-file edits and a behavior oracle; weighted progress rises from 34.54% to 34.61% (+0.07 points). The evidence remains two methods in one upstream module, not broad held-out accuracy.
 
-**Next measurable gate:** Expand held-out positive and negative module rename cases across receiver types, interface contracts, reference patterns, and targets; measure false and missed references, then continue downstream consumer checks.
+**Next measurable gate:** Expand held-out positives and negatives across additional upstream packages, receiver kinds, interface contracts, method values/expressions, and build contexts; measure false and missed references, then continue downstream consumer checks.
 
-Refreshed from pushed commit `1479a6c`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `8c687e1`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
