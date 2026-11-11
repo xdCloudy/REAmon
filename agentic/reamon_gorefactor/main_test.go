@@ -1506,6 +1506,7 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 		"consumer_windows_arm64.go": "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 		"consumer_js_wasm.go":       "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 		"consumer_darwin_arm64.go":  "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+		"consumer_freebsd_amd64.go": "//go:build freebsd && downstream_extra\n\npackage consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 	}
 	files := []projectFile{{
 		Path:   "pkg/api.go",
@@ -1568,8 +1569,8 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 					t.Fatalf("downstream checked build tags = %#v; want the requested custom tag", context["build_tags"])
 				}
 			}
-			if len(seen) != 6 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] || !seen["windows/arm64"] || !seen["js/wasm"] || !seen["darwin/arm64"] {
-				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64, Windows/arm64, JS/wasm, and Darwin/arm64", contexts)
+			if len(seen) != 7 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] || !seen["windows/arm64"] || !seen["js/wasm"] || !seen["darwin/arm64"] || !seen["freebsd/amd64"] {
+				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64, Windows/arm64, JS/wasm, Darwin/arm64, and FreeBSD/amd64", contexts)
 			}
 		})
 	}
@@ -1725,9 +1726,11 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\ntype Other struct{}\n"},
 		{Path: "pkg/api_linux.go", Source: "package pkg\nfunc (Worker) Do() int { return 7 }\nfunc linuxUse() int { return Worker{}.Do() }\n"},
 		{Path: "pkg/api_darwin.go", Source: "package pkg\nfunc (Worker) Do() int { return 12 }\nfunc darwinUse() int { return Worker{}.Do() }\n"},
+		{Path: "pkg/api_freebsd_amd64.go", Source: "//go:build freebsd && downstream_extra\n\npackage pkg\nfunc (Worker) Do() int { return 13 }\nfunc freebsdUse() int { return Worker{}.Do() }\n"},
 		{Path: "pkg/api_windows.go", Source: "package pkg\nfunc (Worker) Do() int { return 9 }\nfunc windowsUse() int { return Worker{}.Do() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n"},
 	}
 	request := goProjectRequest(files, "pkg/api_linux.go")
+	request.BuildTags = []string{"downstream_extra"}
 	request.Operation = "project_module_bindings"
 	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
 	bindings, err := listProjectModuleBindings(request)
@@ -1768,9 +1771,10 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 		changedSources[file["relative_path"].(string)] = file["source_code"].(string)
 	}
 	want := map[string]string{
-		"pkg/api_darwin.go":  "package pkg\nfunc (Worker) Serve() int { return 12 }\nfunc darwinUse() int { return Worker{}.Serve() }\n",
-		"pkg/api_linux.go":   "package pkg\nfunc (Worker) Serve() int { return 7 }\nfunc linuxUse() int { return Worker{}.Serve() }\n",
-		"pkg/api_windows.go": "package pkg\nfunc (Worker) Serve() int { return 9 }\nfunc windowsUse() int { return Worker{}.Serve() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n",
+		"pkg/api_darwin.go":        "package pkg\nfunc (Worker) Serve() int { return 12 }\nfunc darwinUse() int { return Worker{}.Serve() }\n",
+		"pkg/api_freebsd_amd64.go": "//go:build freebsd && downstream_extra\n\npackage pkg\nfunc (Worker) Serve() int { return 13 }\nfunc freebsdUse() int { return Worker{}.Serve() }\n",
+		"pkg/api_linux.go":         "package pkg\nfunc (Worker) Serve() int { return 7 }\nfunc linuxUse() int { return Worker{}.Serve() }\n",
+		"pkg/api_windows.go":       "package pkg\nfunc (Worker) Serve() int { return 9 }\nfunc windowsUse() int { return Worker{}.Serve() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n",
 	}
 	if len(changedSources) != len(want) {
 		t.Fatalf("platform-variant rename outputs = %#v; want both target-specific method files", changedSources)
@@ -1781,13 +1785,13 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 		}
 	}
 	renamed, ok := result["renamed_bindings"].([]map[string]any)
-	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 3 {
-		t.Fatalf("platform-variant method receipt = %#v; want all three in-module references", result["renamed_bindings"])
+	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 4 {
+		t.Fatalf("platform-variant method receipt = %#v; want all four in-module references", result["renamed_bindings"])
 	}
 	compatibility := result["downstream_compatibility"].(map[string]any)
 	contexts, ok := compatibility["checked_build_contexts"].([]map[string]any)
-	if compatibility["status"] != "checked" || !ok || len(contexts) != 6 {
-		t.Fatalf("platform-variant downstream receipt = %#v; want six checked target contexts", compatibility)
+	if compatibility["status"] != "checked" || !ok || len(contexts) != 7 {
+		t.Fatalf("platform-variant downstream receipt = %#v; want seven checked target contexts", compatibility)
 	}
 }
 
@@ -3334,6 +3338,30 @@ func TestProjectInventoryResolvesImportsBetweenModulePackages(t *testing.T) {
 	}
 	if importAlias == nil || importAlias.Classification != "eligible" || importAlias.ReferenceCount != 1 {
 		t.Fatalf("local module import alias = %+v; want one resolved reference", importAlias)
+	}
+}
+
+func TestProjectValidationBuildContextsAreBoundedAndPreserveTags(t *testing.T) {
+	current := goBuildContext{GOOS: "plan9", GOARCH: "amd64", Tags: []string{"downstream_extra"}}
+	contexts := projectValidationBuildContexts(current)
+	if len(contexts) != 8 {
+		t.Fatalf("validation contexts = %#v; want current context plus seven configured targets", contexts)
+	}
+	seen := make(map[string]bool, len(contexts))
+	for _, context := range contexts {
+		key := context.GOOS + "/" + context.GOARCH
+		if seen[key] {
+			t.Fatalf("validation contexts contain duplicate target %s", key)
+		}
+		seen[key] = true
+		if !reflect.DeepEqual(context.Tags, current.Tags) {
+			t.Fatalf("validation context %s has tags %#v; want %#v", key, context.Tags, current.Tags)
+		}
+	}
+	for _, target := range []string{"linux/amd64", "windows/amd64", "linux/arm64", "windows/arm64", "js/wasm", "darwin/arm64", "freebsd/amd64", "plan9/amd64"} {
+		if !seen[target] {
+			t.Fatalf("validation contexts omit %s: %#v", target, contexts)
+		}
 	}
 }
 
