@@ -6,12 +6,38 @@
       "source_manifest": "project_inventory_holdout_v1.json",
       "source_fixture_name": "gorilla-mux-v1.8.1",
       "selected_path": "mux.go",
-      "old_name": "NewRoute",
-      "new_name": "CreateRoute",
-      "expected_references": 12,
-      "expected_edits_by_file": {
-        "mux.go": 13
-      },
+      "behavior_router_method": "NewRoute",
+      "behavior_route_method": "Path",
+      "operations": [
+        {
+          "selected_path": "mux.go",
+          "old_name": "NewRoute",
+          "new_name": "CreateRoute",
+          "expected_references": 12,
+          "expected_edits_by_file": { "mux.go": 13 }
+        }
+      ],
+      "build_contexts": [
+        { "goos": "linux", "goarch": "amd64" },
+        { "goos": "windows", "goarch": "amd64" }
+      ]
+    },
+    {
+      "name": "gorilla-mux-v1.8.1-exported-Route-Path",
+      "source_manifest": "project_inventory_holdout_v1.json",
+      "source_fixture_name": "gorilla-mux-v1.8.1",
+      "selected_path": "route.go",
+      "behavior_router_method": "NewRoute",
+      "behavior_route_method": "Path",
+      "operations": [
+        {
+          "selected_path": "route.go",
+          "old_name": "Path",
+          "new_name": "WithPath",
+          "expected_references": 3,
+          "expected_edits_by_file": { "mux.go": 3, "route.go": 1 }
+        }
+      ],
       "build_contexts": [
         { "goos": "linux", "goarch": "amd64" },
         { "goos": "windows", "goarch": "amd64" }

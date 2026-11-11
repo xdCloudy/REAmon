@@ -114,15 +114,22 @@ type projectModuleRenameCorpus struct {
 }
 
 type projectModuleRenameFixture struct {
-	Name                string                     `json:"name"`
-	SourceManifest      string                     `json:"source_manifest"`
-	SourceFixtureName   string                     `json:"source_fixture_name"`
-	SelectedPath        string                     `json:"selected_path"`
-	OldName             string                     `json:"old_name"`
-	NewName             string                     `json:"new_name"`
-	ExpectedReferences  int                        `json:"expected_references"`
-	ExpectedEditsByFile map[string]int             `json:"expected_edits_by_file"`
-	BuildContexts       []projectModuleRenameBuild `json:"build_contexts"`
+	Name                 string                         `json:"name"`
+	SourceManifest       string                         `json:"source_manifest"`
+	SourceFixtureName    string                         `json:"source_fixture_name"`
+	SelectedPath         string                         `json:"selected_path"`
+	Operations           []projectModuleRenameOperation `json:"operations"`
+	BehaviorRouterMethod string                         `json:"behavior_router_method"`
+	BehaviorRouteMethod  string                         `json:"behavior_route_method"`
+	BuildContexts        []projectModuleRenameBuild     `json:"build_contexts"`
+}
+
+type projectModuleRenameOperation struct {
+	SelectedPath        string         `json:"selected_path"`
+	OldName             string         `json:"old_name"`
+	NewName             string         `json:"new_name"`
+	ExpectedReferences  int            `json:"expected_references"`
+	ExpectedEditsByFile map[string]int `json:"expected_edits_by_file"`
 }
 
 type projectModuleRenameBuild struct {
@@ -435,12 +442,21 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 	if err := json.Unmarshal(renameManifestBytes, &renameCorpus); err != nil {
 		t.Fatalf("parse pinned module rename manifest: %v", err)
 	}
-	if renameCorpus.Version != 1 || len(renameCorpus.Fixtures) != 1 {
-		t.Fatalf("module rename corpus version/fixture count = %d/%d; want 1/1", renameCorpus.Version, len(renameCorpus.Fixtures))
+	if renameCorpus.Version != 1 || len(renameCorpus.Fixtures) != 2 {
+		t.Fatalf("module rename corpus version/fixture count = %d/%d; want version 1 and two positive cases", renameCorpus.Version, len(renameCorpus.Fixtures))
 	}
-	renameFixture := renameCorpus.Fixtures[0]
-	if renameFixture.Name != "gorilla-mux-v1.8.1-exported-NewRoute" || renameFixture.ExpectedReferences < 1 || len(renameFixture.BuildContexts) != 2 {
-		t.Fatalf("pinned module rename fixture = %+v; want two build contexts and a referenced exported method", renameFixture)
+	for _, renameFixture := range renameCorpus.Fixtures {
+		renameFixture := renameFixture
+		t.Run(renameFixture.Name, func(t *testing.T) {
+			assertPinnedGorillaMuxMethodRename(t, renameFixture)
+		})
+	}
+}
+
+func assertPinnedGorillaMuxMethodRename(t *testing.T, renameFixture projectModuleRenameFixture) {
+	t.Helper()
+	if renameFixture.Name == "" || len(renameFixture.Operations) != 1 || len(renameFixture.BuildContexts) != 2 || renameFixture.BehaviorRouterMethod == "" || renameFixture.BehaviorRouteMethod == "" {
+		t.Fatalf("pinned module rename fixture = %+v; want one selected method and two build contexts", renameFixture)
 	}
 	sourceManifestBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(renameFixture.SourceManifest)))
 	if err != nil {
@@ -507,32 +523,54 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 			if err != nil {
 				t.Fatalf("catalog pinned gorilla/mux module: %v", err)
 			}
-			var selected binding
-			for _, raw := range catalogResult["bindings"].([]map[string]any) {
-				if raw["name"] == renameFixture.OldName && raw["relativePath"] == renameFixture.SelectedPath {
-					selected = binding{ID: raw["id"].(string), Name: renameFixture.OldName, ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
-					break
+			selectedOperations := make([]renameSelection, 0, len(renameFixture.Operations))
+			expectedEditCounts := make(map[string]int)
+			operationByOldName := make(map[string]projectModuleRenameOperation, len(renameFixture.Operations))
+			for _, operation := range renameFixture.Operations {
+				if operation.OldName == "" || operation.NewName == "" || operation.ExpectedReferences < 0 || len(operation.ExpectedEditsByFile) == 0 {
+					t.Fatalf("invalid pinned rename operation: %+v", operation)
 				}
+				var selected binding
+				for _, raw := range catalogResult["bindings"].([]map[string]any) {
+					if raw["name"] == operation.OldName && raw["relativePath"] == operation.SelectedPath {
+						selected = binding{ID: raw["id"].(string), Name: operation.OldName, ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+						break
+					}
+				}
+				if selected.ID == "" || !selected.Exported {
+					t.Fatalf("pinned %s binding = %+v; want exported receiver method", operation.OldName, selected)
+				}
+				if selected.ReferenceCount != operation.ExpectedReferences {
+					t.Fatalf("%s %s reference count = %d; want %d", build.GOOS, operation.OldName, selected.ReferenceCount, operation.ExpectedReferences)
+				}
+				if _, exists := operationByOldName[operation.OldName]; exists {
+					t.Fatalf("duplicate pinned rename operation for %s", operation.OldName)
+				}
+				operationByOldName[operation.OldName] = operation
+				selectedOperations = append(selectedOperations, renameSelection{ID: selected.ID, NewName: operation.NewName})
+				for filePath, count := range operation.ExpectedEditsByFile {
+					expectedEditCounts[filePath] += count
+				}
+				t.Logf("pinned %s has %d resolved in-module references", operation.OldName, selected.ReferenceCount)
 			}
-			if selected.ID == "" || !selected.Exported {
-				t.Fatalf("pinned %s binding = %+v; want exported receiver method", renameFixture.OldName, selected)
-			}
-			if selected.ReferenceCount != renameFixture.ExpectedReferences {
-				t.Fatalf("%s %s reference count = %d; want %d", build.GOOS, renameFixture.OldName, selected.ReferenceCount, renameFixture.ExpectedReferences)
-			}
-			t.Logf("pinned %s has %d resolved in-module references", renameFixture.OldName, selected.ReferenceCount)
 
 			request.Operation = "project_module_rename"
 			request.ExpectedHash = catalogResult["source_sha256"].(string)
 			request.SourceSetHash = catalogResult["source_set_sha256"].(string)
-			request.Renames = []renameSelection{{ID: selected.ID, NewName: renameFixture.NewName}}
+			request.Renames = selectedOperations
 			result, err := applyProjectModuleRenames(request)
 			if err != nil {
-				t.Fatalf("rename pinned gorilla/mux method: %v", err)
+				t.Fatalf("rename pinned gorilla/mux methods: %v", err)
 			}
 			renamedBindings := result["renamed_bindings"].([]map[string]any)
-			if len(renamedBindings) != 1 || renamedBindings[0]["oldName"] != renameFixture.OldName || renamedBindings[0]["newName"] != renameFixture.NewName || renamedBindings[0]["exported"] != true {
-				t.Fatalf("pinned rename disclosure = %#v; want exported %s -> %s", renamedBindings, renameFixture.OldName, renameFixture.NewName)
+			if len(renamedBindings) != len(renameFixture.Operations) {
+				t.Fatalf("pinned rename disclosures = %#v; want %d exported methods", renamedBindings, len(renameFixture.Operations))
+			}
+			for _, renamed := range renamedBindings {
+				operation, ok := operationByOldName[renamed["oldName"].(string)]
+				if !ok || renamed["newName"] != operation.NewName || renamed["exported"] != true {
+					t.Fatalf("pinned rename disclosure = %#v; want a configured exported method rename", renamed)
+				}
 			}
 			outputs := outputsBeforeRename(files)
 			editCounts := make(map[string]int)
@@ -543,14 +581,16 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 				for _, edit := range output["edits"].([]map[string]any) {
 					start, startOK := edit["start"].(int)
 					end, endOK := edit["end"].(int)
-					if edit["old_text"] != renameFixture.OldName || edit["new_text"] != renameFixture.NewName || !startOK || !endOK || start < 0 || end > len(sourceByPath[filePath]) || sourceByPath[filePath][start:end] != renameFixture.OldName {
-						t.Fatalf("pinned edit for %s = %#v; want exact %s -> %s byte span", filePath, edit, renameFixture.OldName, renameFixture.NewName)
+					oldName, oldOK := edit["old_text"].(string)
+					operation, configured := operationByOldName[oldName]
+					if !oldOK || !configured || edit["new_text"] != operation.NewName || !startOK || !endOK || start < 0 || end > len(sourceByPath[filePath]) || sourceByPath[filePath][start:end] != oldName {
+						t.Fatalf("pinned edit for %s = %#v; want a configured exact byte-span rename", filePath, edit)
 					}
 					editCounts[filePath]++
 				}
 			}
-			if !reflect.DeepEqual(editCounts, renameFixture.ExpectedEditsByFile) {
-				t.Fatalf("pinned per-file edit counts = %#v; want %#v", editCounts, renameFixture.ExpectedEditsByFile)
+			if !reflect.DeepEqual(editCounts, expectedEditCounts) {
+				t.Fatalf("pinned per-file edit counts = %#v; want %#v", editCounts, expectedEditCounts)
 			}
 			if build.GOOS == "linux" {
 				linuxOutputs = outputs
@@ -560,8 +600,17 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 	if linuxOutputs == nil {
 		t.Fatal("pinned Linux module rename did not produce a measurable result")
 	}
-	assertGorillaModuleBehavior(t, outputsBeforeRename(files), string(goModBytes), renameFixture.OldName, "original")
-	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renameFixture.NewName, "renamed")
+	assertGorillaModuleBehavior(t, outputsBeforeRename(files), string(goModBytes), renameFixture.BehaviorRouterMethod, renameFixture.BehaviorRouteMethod, "original")
+	renamedRouterMethod, renamedRouteMethod := renameFixture.BehaviorRouterMethod, renameFixture.BehaviorRouteMethod
+	for _, operation := range renameFixture.Operations {
+		if operation.OldName == renamedRouterMethod {
+			renamedRouterMethod = operation.NewName
+		}
+		if operation.OldName == renamedRouteMethod {
+			renamedRouteMethod = operation.NewName
+		}
+	}
+	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renamedRouterMethod, renamedRouteMethod, "renamed")
 }
 
 func TestProjectModuleRenamePinnedGoogleUUIDPreservesStandardInterfaces(t *testing.T) {
@@ -669,7 +718,7 @@ func filesByPath(files []projectFile) map[string]string {
 	return byPath
 }
 
-func assertGorillaModuleBehavior(t *testing.T, files map[string]string, goMod, methodName, variant string) {
+func assertGorillaModuleBehavior(t *testing.T, files map[string]string, goMod, routerMethodName, routeMethodName, variant string) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
@@ -684,7 +733,7 @@ func assertGorillaModuleBehavior(t *testing.T, files map[string]string, goMod, m
 			t.Fatalf("write pinned gorilla/mux %s source: %v", variant, err)
 		}
 	}
-	testSource := fmt.Sprintf("package mux\nimport (\"net/http/httptest\"; \"testing\")\nfunc TestHeldOutModuleRenameBehavior(t *testing.T) { router := NewRouter(); router.%s().Path(\"/api/{id:[0-9]+}\").Methods(\"GET\"); match := &RouteMatch{}; if !router.Match(httptest.NewRequest(\"GET\", \"/api/42\", nil), match) || match.Vars[\"id\"] != \"42\" { t.Fatalf(\"route behavior changed: %%+v\", match) } }\n", methodName)
+	testSource := fmt.Sprintf("package mux\nimport (\"net/http/httptest\"; \"testing\")\nfunc TestHeldOutModuleRenameBehavior(t *testing.T) { router := NewRouter(); router.%s().%s(\"/api/{id:[0-9]+}\").Methods(\"GET\"); match := &RouteMatch{}; if !router.Match(httptest.NewRequest(\"GET\", \"/api/42\", nil), match) || match.Vars[\"id\"] != \"42\" { t.Fatalf(\"route behavior changed: %%+v\", match) } }\n", routerMethodName, routeMethodName)
 	if err := os.WriteFile(filepath.Join(root, "module_rename_test.go"), []byte(testSource), 0o600); err != nil {
 		t.Fatalf("write pinned gorilla/mux %s behavior oracle: %v", variant, err)
 	}
