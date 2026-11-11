@@ -124,7 +124,7 @@ Latest evidence-based score change (2026-11-11): **+0.07 points** (34.75% → 34
 
 **Next measurable gate:** Add held-out method cases with additional interface and reference patterns, grow the corpus beyond three upstream modules, and measure false/missed references and external-consumer compatibility across build contexts.
 
-Refreshed from pushed commit `4ad3087`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `4c4bf83`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
