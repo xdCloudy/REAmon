@@ -1557,6 +1557,38 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 	}
 }
 
+func TestProjectModuleExportedMethodRenameRejectsUnselectedPlatformVariant(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/api_linux.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
+		{Path: "pkg/api_windows.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 7 }\nfunc local() int { return Worker{}.Do() }\n"},
+	}
+	request := goProjectRequest(files, "pkg/api_linux.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindings, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list Linux module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindings["bindings"].([]map[string]any) {
+		if raw["name"] == "Do" {
+			selected = binding{ID: raw["id"].(string), Name: "Do", Exported: raw["exported"].(bool)}
+			break
+		}
+	}
+	if selected.ID == "" || !selected.Exported {
+		t.Fatalf("platform-specific method binding = %+v; want exported Do method", selected)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindings["source_sha256"].(string)
+	request.SourceSetHash = bindings["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Serve"}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "build-specific declaration") || !strings.Contains(err.Error(), "pkg/api_windows.go") {
+		t.Fatalf("platform-specific method rename error = %v; want refusal naming the inactive Windows declaration", err)
+	}
+}
+
 func assertDownstreamGoModuleBuild(t *testing.T, appGoMod string, appFiles map[string]string, consumerGoMod, consumerSource string, wantSuccess bool) string {
 	t.Helper()
 	root := t.TempDir()

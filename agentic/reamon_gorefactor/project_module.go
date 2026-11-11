@@ -345,6 +345,65 @@ func downstreamFallbackManifest(goMod, consumerModulePath, importedModulePath st
 	return string(contents), nil
 }
 
+func receiverSyntaxName(expression ast.Expr) string {
+	switch receiver := expression.(type) {
+	case *ast.Ident:
+		return receiver.Name
+	case *ast.StarExpr:
+		return receiverSyntaxName(receiver.X)
+	case *ast.IndexExpr:
+		return receiverSyntaxName(receiver.X)
+	case *ast.IndexListExpr:
+		return receiverSyntaxName(receiver.X)
+	case *ast.ParenExpr:
+		return receiverSyntaxName(receiver.X)
+	default:
+		return ""
+	}
+}
+
+func unselectedMethodVariant(catalog *projectModuleCatalog, method *types.Func) (string, error) {
+	receiver, ok := receiverNamedObject(method)
+	if !ok {
+		return "", fmt.Errorf("the receiver type for method %s could not be resolved", method.Name())
+	}
+	selectedDir := ""
+	for filePath, packageCatalog := range catalog.CatalogByFile {
+		if packageCatalog.Package == method.Pkg() {
+			selectedDir = path.Dir(filePath)
+			break
+		}
+	}
+	if selectedDir == "" {
+		return "", fmt.Errorf("the source package for method %s could not be resolved", method.Name())
+	}
+	for _, file := range catalog.Files {
+		if path.Dir(file.Path) != selectedDir || catalog.CatalogByFile[file.Path] != nil {
+			continue
+		}
+		fileSet := token.NewFileSet()
+		parsed, err := parser.ParseFile(fileSet, file.Path, file.Text, parser.AllErrors|parser.ParseComments)
+		if err != nil {
+			return "", fmt.Errorf("cannot inspect inactive Go source %s for platform-specific method variants", file.Path)
+		}
+		if parsed.Name.Name != method.Pkg().Name() {
+			continue
+		}
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok || function.Recv == nil || function.Name.Name != method.Name() {
+				continue
+			}
+			for _, field := range function.Recv.List {
+				if receiverSyntaxName(field.Type) == receiver.Name() {
+					return file.Path, nil
+				}
+			}
+		}
+	}
+	return "", nil
+}
+
 func checkDownstreamModuleCompatibility(app *projectModuleCatalog, downstream downstreamModuleSnapshot, build goBuildContext) (bool, error) {
 	if downstream.ModulePath == "" || !safeGoModuleImportPath(downstream.ModulePath) || downstream.ModulePath == app.ModulePath {
 		return false, fmt.Errorf("downstream Go module identity is invalid")
@@ -539,6 +598,18 @@ func applyProjectModuleRenames(req request) (map[string]any, error) {
 		seen[rename.ID] = true
 		selectedObjects[item.Object] = true
 		selected = append(selected, projectRenameChoice{item: item, newName: rename.NewName})
+	}
+	for _, choice := range selected {
+		if choice.item.Kind != "method" || !choice.item.Exported {
+			continue
+		}
+		variant, variantErr := unselectedMethodVariant(catalog, choice.item.Object.(*types.Func))
+		if variantErr != nil {
+			return nil, variantErr
+		}
+		if variant != "" {
+			return nil, fmt.Errorf("cannot safely rename exported method %s: another build-specific declaration exists in %s", choice.item.Name, variant)
+		}
 	}
 	methodTargets := make(map[types.Object]map[string]bool)
 	fileAliasTargets := make(map[string]map[string]bool)
