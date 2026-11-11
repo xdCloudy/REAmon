@@ -160,7 +160,7 @@ type projectImportAliasHoldoutCorpus struct {
 	GoModSHA256      string                        `json:"go_mod_sha256"`
 	LicenseFixture   string                        `json:"license_fixture_path"`
 	LicenseSHA256    string                        `json:"license_sha256"`
-	BuildContext     projectModuleRenameBuild      `json:"build_context"`
+	BuildContexts    []projectModuleRenameBuild    `json:"build_contexts"`
 	Files            []projectInventoryFixtureFile `json:"files"`
 	Aliases          []projectImportAliasHoldout   `json:"aliases"`
 }
