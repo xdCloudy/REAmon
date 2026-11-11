@@ -396,6 +396,170 @@ describe('POST safe-renames Go package scope', () => {
     expect(h.txDraftCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ codeUnitId: 'unit-b', sourceHash: inputHash(siblingSource), sourceCode: siblingOutput, syntaxValidated: true, validationStatus: 'PASSED' }) }))
   })
 
+  it('suggests and applies an exported method rename across a verified module snapshot', async () => {
+    const moduleGoMod = 'module example.test/app\n\ngo 1.25\n'
+    const moduleGoSum = 'example.test/dep v1.0.0 h1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n'
+    const moduleSelectedSource = 'package pkg\ntype Worker struct{}\nfunc (Worker) Do() int { return 1 }\n'
+    const moduleSiblingSource = 'package pkg\nfunc local() int { return Worker{}.Do() }\n'
+    const commandSource = 'package main\nimport "example.test/app/pkg"\nfunc Run() int { return pkg.Worker{}.Do() }\nfunc Expr() func(pkg.Worker) int { return pkg.Worker.Do }\n'
+    const commandPath = 'cmd/main.go'
+    const commandCodeArtifactId = `project-1/artifact-1/task-1/run-1/sources/${commandPath}`
+    const moduleFiles = [
+      { relativePath: selectedPath, sourceCode: moduleSelectedSource },
+      { relativePath: siblingPath, sourceCode: moduleSiblingSource },
+      { relativePath: commandPath, sourceCode: commandSource },
+    ]
+    const manifestPath = path.join(root, 'go.mod')
+    const sumPath = path.join(root, 'go.sum')
+    await mkdir(path.dirname(path.join(root, commandCodeArtifactId)), { recursive: true })
+    await writeFile(path.join(root, selectedCodeArtifactId), moduleSelectedSource)
+    await writeFile(path.join(root, siblingCodeArtifactId), moduleSiblingSource)
+    await writeFile(path.join(root, commandCodeArtifactId), commandSource)
+    await writeFile(manifestPath, moduleGoMod)
+    await writeFile(sumPath, moduleGoSum)
+    h.observationFindMany.mockResolvedValueOnce([
+      { id: 'unit-a', label: 'pkg.a', attributes: { language: 'Go', relativePath: selectedPath, qualifiedName: 'pkg.a', codeArtifactId: selectedCodeArtifactId } },
+      { id: 'unit-b', label: 'pkg.b', attributes: { language: 'Go', relativePath: siblingPath, qualifiedName: 'pkg.b', codeArtifactId: siblingCodeArtifactId } },
+      { id: 'unit-c', label: 'cmd.main', attributes: { language: 'Go', relativePath: commandPath, qualifiedName: 'cmd.main', codeArtifactId: commandCodeArtifactId } },
+    ])
+    h.maintainedFindMany.mockResolvedValueOnce([
+      { codeUnitId: 'unit-b', sourceCode: moduleSiblingSource, sourceHash: inputHash(moduleSiblingSource), acceptedReviewId: 'review-b', relativePath: siblingPath },
+      { codeUnitId: 'unit-c', sourceCode: commandSource, sourceHash: inputHash(commandSource), acceptedReviewId: 'review-c', relativePath: commandPath },
+    ])
+    h.reviewFindMany.mockResolvedValueOnce([
+      { id: 'review-b', codeUnitId: 'unit-b', artifactId: 'artifact-1', maintainedSourceHash: inputHash(moduleSiblingSource), decision: 'ACCEPTED' },
+      { id: 'review-c', codeUnitId: 'unit-c', artifactId: 'artifact-1', maintainedSourceHash: inputHash(commandSource), decision: 'ACCEPTED' },
+    ])
+    h.artifactFindMany.mockResolvedValueOnce([{
+      relativePath: 'go.mod', storagePath: manifestPath, sizeBytes: BigInt(Buffer.byteLength(moduleGoMod)), sha256: inputHash(moduleGoMod),
+    }])
+    h.artifactFindFirst.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64) }).mockResolvedValueOnce({
+      storagePath: sumPath, sizeBytes: BigInt(Buffer.byteLength(moduleGoSum)), sha256: inputHash(moduleGoSum),
+    })
+
+    const moduleInventory = {
+      scope: 'verified-whole-project-go-source-snapshot', complete: true,
+      source_file_count: 3, package_count: 2,
+      private_package_symbol_count: 0, referenced_private_package_symbols: 0, unreferenced_private_symbols: 0,
+      exported_package_symbol_count: 0, unsupported_package_symbol_count: 0,
+      file_scope_symbol_count: 0, referenced_file_scope_symbols: 0, unreferenced_file_scope_symbols: 0, unsupported_file_scope_symbol_count: 0,
+      local_symbol_count: 0, referenced_local_symbols: 0, unreferenced_local_symbols: 0, unsupported_local_symbol_count: 0,
+      member_symbol_count: 1, unsupported_member_symbol_count: 1, entry_count: 1, entries_truncated: false,
+      entries: [{ id: methodBindingId, name: 'Do', kind: 'method', scope: 'member', relativePath: selectedPath,
+        declarationStart: moduleSelectedSource.indexOf('Do'), referenceCount: 3, exported: true,
+        classification: 'unsupported', classificationReason: 'go-member-not-offered-by-project-inventory', nameAssessment: 'unassessed' }],
+    }
+    const outputFiles = moduleFiles.map((file) => {
+      const sourceCode = file.sourceCode.replaceAll('Do', 'Serve')
+      const edits: Array<{ start: number; end: number; old_text: string; new_text: string }> = []
+      let offset = 0
+      while ((offset = file.sourceCode.indexOf('Do', offset)) >= 0) {
+        edits.push({ start: offset, end: offset + 2, old_text: 'Do', new_text: 'Serve' })
+        offset += 2
+      }
+      return { ...file, sourceCode, edits }
+    })
+    const inventoryScope = inventoryScopeHash(moduleFiles, {
+      moduleRoot: '', modulePath: 'example.test/app', manifestSha256: inputHash(moduleGoMod), sumSha256: inputHash(moduleGoSum),
+    })
+    const baseImplementation = h.agentFetch.getMockImplementation()
+    if (!baseImplementation) throw new Error('Expected the Go project helper fixture')
+    h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as Record<string, any>
+      const files = (request.files as Array<{ relative_path: string; source_code: string }> | undefined) ?? []
+      const parsedFiles = files.map((file) => ({ relativePath: file.relative_path, sourceCode: file.source_code }))
+      if (request.operation === 'project_module_bindings') return jsonResponse({
+        scope: 'verified-go-module-source-snapshot', selected_path: selectedPath,
+        source_sha256: inputHash(moduleSelectedSource), source_set_sha256: setHash(moduleFiles), inventory_scope_sha256: inventoryScope,
+        files: [...moduleFiles].sort((left, right) => left.relativePath.localeCompare(right.relativePath)).map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
+        bindings: [{ id: methodBindingId, name: 'Do', kind: 'method', scopeType: 'member', relativePath: selectedPath,
+          declarationStart: moduleSelectedSource.indexOf('Do'), referenceCount: 3, exported: true }],
+        truncated: false, parser_version: 'go1.25.0',
+      })
+      if (request.operation === 'project_inventory') {
+        const packageFiles = (directory: string) => parsedFiles.filter((file) => file.relativePath.startsWith(`${directory}/`))
+        return jsonResponse({
+          source_sha256: inputHash(moduleSelectedSource), source_set_sha256: setHash(moduleFiles), selected_path: selectedPath,
+          module_path: request.module_path, module_root: request.module_root,
+          go_mod_sha256: request.go_mod_sha256, go_sum_sha256: request.go_sum_sha256,
+          files: [...moduleFiles].sort((left, right) => left.relativePath.localeCompare(right.relativePath)).map((file) => ({ relative_path: file.relativePath, source_sha256: inputHash(file.sourceCode) })),
+          packages: [
+            { directory: 'cmd', package_name: 'main', source_file_count: 1, source_set_sha256: setHash(packageFiles('cmd')) },
+            { directory: 'pkg', package_name: 'pkg', source_file_count: 2, source_set_sha256: setHash(packageFiles('pkg')) },
+          ], inventory: moduleInventory, parser_version: 'go1.25.0',
+        })
+      }
+      if (request.operation === 'project_module_rename') return jsonResponse({
+        scope: 'module', source_sha256: inputHash(moduleSelectedSource), source_set_sha256: setHash(moduleFiles),
+        inventory_scope_sha256: inventoryScope, output_inventory_scope_sha256: 'c'.repeat(64),
+        output_source_set_sha256: setHash(outputFiles), output_sha256: inputHash(outputFiles[0].sourceCode),
+        source_code: outputFiles[0].sourceCode, parser_version: 'go1.25.0',
+        renamed_bindings: [{ bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', kind: 'method', referenceCount: 3, scopeType: 'member', exported: true }],
+        files: outputFiles.map((file) => {
+          const original = moduleFiles.find((item) => item.relativePath === file.relativePath)!
+          return {
+            relative_path: file.relativePath, input_sha256: inputHash(original.sourceCode), output_sha256: inputHash(file.sourceCode),
+            source_code: file.sourceCode, edits: file.edits,
+          }
+        }),
+      })
+      if (url === '/reamon/code/suggest-renames') {
+        expect(request.allow_exported_go_methods).toBe(true)
+        expect(request.bindings).toContainEqual(expect.objectContaining({ id: methodBindingId, exported: true }))
+        return jsonResponse({ renames: [{ bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', rationale: 'clear public method name' }] })
+      }
+      return baseImplementation(url, init)
+    })
+
+    const suggestResponse = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: moduleSelectedSource, moduleGo: true }),
+    }), routeParams)
+    const suggestions = await suggestResponse.json()
+    expect(suggestResponse.status, JSON.stringify(suggestions)).toBe(200)
+    expect(suggestions).toMatchObject({ scope: 'module', sourceSetSha256: setHash(moduleFiles), projectInventory: { sourceFileCount: 3, packageCount: 2 }, renames: [{ oldName: 'Do', newName: 'Serve' }] })
+    const savedProposal = h.attemptCreate.mock.calls[0]?.[0].data.requestPayload
+    expect(savedProposal).toMatchObject({ goProjectScope: true, goModuleScope: true, goModuleInventoryScopeSha256: inventoryScope })
+
+    // Apply must reload current source and module receipts independently of the proposal request.
+    h.observationFindMany.mockResolvedValue([
+      { id: 'unit-a', label: 'pkg.a', attributes: { language: 'Go', relativePath: selectedPath, qualifiedName: 'pkg.a', codeArtifactId: selectedCodeArtifactId } },
+      { id: 'unit-b', label: 'pkg.b', attributes: { language: 'Go', relativePath: siblingPath, qualifiedName: 'pkg.b', codeArtifactId: siblingCodeArtifactId } },
+      { id: 'unit-c', label: 'cmd.main', attributes: { language: 'Go', relativePath: commandPath, qualifiedName: 'cmd.main', codeArtifactId: commandCodeArtifactId } },
+    ])
+    h.maintainedFindMany.mockResolvedValue([
+      { codeUnitId: 'unit-b', sourceCode: moduleSiblingSource, sourceHash: inputHash(moduleSiblingSource), acceptedReviewId: 'review-b', relativePath: siblingPath },
+      { codeUnitId: 'unit-c', sourceCode: commandSource, sourceHash: inputHash(commandSource), acceptedReviewId: 'review-c', relativePath: commandPath },
+    ])
+    h.reviewFindMany.mockResolvedValue([
+      { id: 'review-b', codeUnitId: 'unit-b', artifactId: 'artifact-1', maintainedSourceHash: inputHash(moduleSiblingSource), decision: 'ACCEPTED' },
+      { id: 'review-c', codeUnitId: 'unit-c', artifactId: 'artifact-1', maintainedSourceHash: inputHash(commandSource), decision: 'ACCEPTED' },
+    ])
+    h.artifactFindMany.mockResolvedValue([{
+      relativePath: 'go.mod', storagePath: manifestPath, sizeBytes: BigInt(Buffer.byteLength(moduleGoMod)), sha256: inputHash(moduleGoMod),
+    }])
+    h.artifactFindFirst.mockResolvedValueOnce({ id: 'artifact-1', sha256: 'a'.repeat(64) }).mockResolvedValueOnce({
+      storagePath: sumPath, sizeBytes: BigInt(Buffer.byteLength(moduleGoSum)), sha256: inputHash(moduleGoSum),
+    })
+    h.attemptFindFirst.mockResolvedValue({ id: 'suggestion-attempt-1', requestPayload: savedProposal })
+    const applyResponse = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'apply', unitId: 'unit-a', providerId: 'provider-1', sourceCode: moduleSelectedSource,
+        expectedSha256: inputHash(moduleSelectedSource), suggestionAttemptId: 'suggestion-attempt-1', moduleGo: true,
+        renames: [{ bindingId: methodBindingId, oldName: 'Do', newName: 'Serve', rationale: 'clear public method name' }],
+      }),
+    }), routeParams)
+    const applied = await applyResponse.json()
+    expect(applyResponse.status, JSON.stringify(applied)).toBe(200)
+    expect(applied).toMatchObject({ sourceCode: outputFiles[0].sourceCode, sourceSetSha256: setHash(moduleFiles), outputSourceSetSha256: setHash(outputFiles) })
+    expect(applied.projectChanges.map((change: { relativePath: string }) => change.relativePath).sort()).toEqual(moduleFiles.map((file) => file.relativePath).sort())
+    expect(h.txDraftCreate).toHaveBeenCalledTimes(3)
+    expect(h.txDraftCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      codeUnitId: 'unit-c', sourceCode: outputFiles[2].sourceCode, validationMethod: 'go1.25.0+go-types-module-binding-identity',
+    }) }))
+  })
+
   it('rejects a helper catalog whose source-set hash differs from the reviewed snapshot', async () => {
     h.agentFetch.mockResolvedValueOnce(jsonResponse({
       source_sha256: inputHash(selectedSource), source_set_sha256: 'f'.repeat(64), selected_path: selectedPath,

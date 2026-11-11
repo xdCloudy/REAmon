@@ -783,6 +783,45 @@ describe('WorkspaceCodeVisualizer', () => {
     expect(await screen.findByText(/member struct field · unsupported \(go-member-not-offered-by-project-inventory\)/)).toBeInTheDocument()
   })
 
+  test('requests verified Go module scope and warns about exported API impact', async () => {
+    const source = 'package sample\nfunc normalize(value int) int { return value }\n'
+    const goUnit = unit({ language: 'Go', artifactPath: 'pkg/normalize.go', codeArtifactId: 'project-1/artifact-1/task-1/run-1/sources/pkg/normalize.go' })
+    const fetchMock = vi.fn((input: string, init?: RequestInit) => {
+      if (input.includes('/visualizer/providers')) return Promise.resolve({ ok: true, json: async () => ({ providers: [{ id: 'provider-local', name: 'Local Qwen', modelIdentifier: 'Qwen3.5-0.8B' }] }) })
+      if (input.includes('/decompiled/')) return Promise.resolve({ ok: true, text: async () => source })
+      if (input.includes('/visualizer/safe-renames') && init?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({
+        sourceSha256: 'a'.repeat(64), sourceSetSha256: 'b'.repeat(64), providerId: 'provider-local', providerName: 'Local Qwen', model: 'Qwen3.5-0.8B',
+        attemptId: 'attempt-module-1', projectSymbolContextSha256: 'c'.repeat(64), scope: 'module', candidates: 1,
+        projectInventory: {
+          scope: 'verified-whole-project-go-source-snapshot', complete: true, packageCount: 2, sourceFileCount: 3,
+          privatePackageSymbolCount: 0, referencedPrivatePackageSymbols: 0, unreferencedPrivateSymbols: 0,
+          exportedPackageSymbolCount: 0, unsupportedPackageSymbolCount: 0,
+          fileScopeSymbolCount: 0, referencedFileScopeSymbols: 0, unreferencedFileScopeSymbols: 0, unsupportedFileScopeSymbolCount: 0,
+          localSymbolCount: 0, referencedLocalSymbols: 0, unreferencedLocalSymbols: 0, unsupportedLocalSymbolCount: 0,
+          memberSymbolCount: 1, unsupportedMemberSymbolCount: 1, renameBindingCatalogTruncated: false,
+          entryCount: 1, entriesTruncated: false,
+          entries: [{ id: 'fedcba9876543210fedcba98', name: 'Do', kind: 'method', scope: 'member', relativePath: 'pkg/normalize.go', declarationStart: 20, referenceCount: 2, exported: true, classification: 'unsupported', classificationReason: 'go-member-not-offered-by-project-inventory', nameAssessment: 'unassessed' }],
+        },
+        renames: [{ bindingId: 'fedcba9876543210fedcba98', oldName: 'Do', newName: 'Serve', rationale: 'Clear call sites' }],
+      }) })
+      return Promise.resolve({ ok: true, json: async () => ({ units: [goUnit], total: 1, hasMore: false }) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderVisualizer()
+
+    fireEvent.click(await screen.findByRole('button', { name: /app\.MainActivity\.onCreate/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Include every Go package in the module/ }))
+    expect(screen.getByRole('status')).toHaveTextContent(/may change the public Go API/)
+    const suggestButton = await screen.findByRole('button', { name: 'Suggest scope-safe renames' })
+    await waitFor(() => expect(suggestButton).toBeEnabled())
+    fireEvent.click(suggestButton)
+
+    expect(await screen.findByText(/Go module inventory: 3 source files across 2 packages/)).toBeInTheDocument()
+    const request = fetchMock.mock.calls.find(([input, init]) => String(input).includes('/visualizer/safe-renames') && init?.method === 'POST')
+    expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({ moduleGo: true, crossFileGo: false })
+    expect(await screen.findByText('Do → Serve')).toBeInTheDocument()
+  })
+
   test('creates an editable AI reverse-engineered copy and saves it separately', async () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
