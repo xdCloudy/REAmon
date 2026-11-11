@@ -80,7 +80,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <progress value="35.14" max="100">35.14%</progress> <strong>35.14%</strong> — weighted estimate **35.14%**.
 
-Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35.14%). One partial point for coordinated explicit Go import-alias batches across module files is supported by the full Docker Go refactor suite, a multi-package behavior oracle, route and visualizer regression tests, TypeScript type-check, and targeted ESLint. This is bounded fixture evidence; live database acceptance, broad held-out accuracy, and downstream-consumer compatibility remain open.
+Latest evidence-based score change (2026-11-11): **+0.08 points** (35.06% → 35.14%). One partial point for coordinated explicit Go import-alias batches across module files is supported by the full Docker Go refactor suite, a multi-package behavior oracle, route and visualizer regressions, TypeScript type-check, and targeted ESLint. PostgreSQL acceptance now verifies two-file proposal persistence, draft reload, and transaction rollback using controlled helper responses; broad held-out accuracy and downstream-consumer compatibility remain open.
 
 **Work completed (2026-11-11):**
 
