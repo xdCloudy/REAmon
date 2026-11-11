@@ -80,7 +80,7 @@ The [autonomous reconstruction and fidelity delivery plan](docs/REAMON_AUTONOMOU
 
 <progress value="34.98" max="100">34.98%</progress> <strong>34.98%</strong> — weighted estimate **34.98%**.
 
-Latest evidence-based score change (2026-11-11): **+0.00 points** (34.98% → 34.98%). Module import-alias collision regressions reject an alias rename onto an existing same-file import and reject two aliases with the same target. All three focused alias tests pass and the complete Docker Go helper package suite passes under Go 1.25 (53.944s). This strengthens collision-safety evidence for the previously credited alias capability and adds no separate weighted point; progress remains 34.98%.
+Latest evidence-based score change (2026-11-11): **+0.08 points** (34.90% → 34.98%). The integrated module-snapshot path now catalogs and renames an explicit import alias declared in the selected source file, edits the alias and resolved same-file uses, re-type-checks the complete supplied module, verifies binding identity, and preserves the fixture behavior oracle. Full Docker Go helper, route/UI, TypeScript type-check, and targeted ESLint checks passed. This capability moved semantic-renaming completion from 39% to 40% and weighted progress from 34.90% to 34.98%. The later collision-control cycle adds safety evidence but no separate weighted point.
 
 **Work completed (2026-11-11):**
 
@@ -123,11 +123,11 @@ Latest evidence-based score change (2026-11-11): **+0.00 points** (34.98% → 34
 - Source commit 6f7c90bf extends explicit Go import-alias renames to the verified module-snapshot proposal path. The module binding catalog returns the selected file alias with resolved references; the route accepts it as a file-scope candidate, and the helper edits exactly the declaration and same-file use while re-type-checking the supplied module and preserving a before/after behavior oracle. A type-correct local-capture case is rejected by binding-identity verification. The full Docker Go helper suite passes under Go 1.25 (59.064s); route and visualizer tests pass 47/47, Docker TypeScript type-check and targeted ESLint pass. The route test controls the helper response; real helper/module transformation behavior is covered by the Go tests.
 - Source commit 4aa4c26e adds module-scope import-alias collision regressions: renaming onto an existing alias and assigning one new name to two aliases both reject. The three focused module alias tests pass, and the full Docker Go refactor package suite passes under Go 1.25 (53.944s). This adds safety evidence for the capability already credited; weighted progress remains 34.98%.
 
-**Score decision:** No weighted score change this cycle. The existing module-scope alias capability now has explicit collision regressions for occupied and duplicate targets; this is correctness evidence, not a separate capability increment. Weighted progress remains 34.98%.
+**Score decision:** This collision-control cycle adds no new weighted point; 34.98% remains correct. The latest capability increase was module-snapshot explicit alias rename support, which raised the score from 34.90% to 34.98% (+0.08 points).
 
 **Next measurable gate:** Expand held-out method and import-alias cases across packages and build contexts, measure false and missed references, and add external-consumer compatibility checks; then extend semantic propagation to another language.
 
-Refreshed from pushed commit `6c67689`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `f91c50f`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 

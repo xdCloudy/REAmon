@@ -1,6 +1,6 @@
 # REAmon product progress
 
-Assessment date: 2026-11-11 · Source: pushed commit `6c67689` · Weighted estimate: **34.98%**
+Assessment date: 2026-11-11 · Source: pushed commit `f91c50f` · Weighted estimate: **34.98%**
 
 This estimate covers the reverse-engineering product goal and secure production operations. It is not a release certification; unresolved security, test, or deployment gates can block release at any score. Workstream weights total 100%; each contribution is weight × completion.
 
@@ -45,7 +45,7 @@ This estimate covers the reverse-engineering product goal and secure production 
 - Source commit 6f7c90bf extends explicit Go import-alias renames to the verified module-snapshot proposal path. The module binding catalog returns the selected file alias with resolved references; the route accepts it as a file-scope candidate, and the helper edits exactly the declaration and same-file use while re-type-checking the supplied module and preserving a before/after behavior oracle. A type-correct local-capture case is rejected by binding-identity verification. The full Docker Go helper suite passes under Go 1.25 (59.064s); route and visualizer tests pass 47/47, Docker TypeScript type-check and targeted ESLint pass. The route test controls the helper response; real helper/module transformation behavior is covered by the Go tests.
 - Source commit 4aa4c26e adds module-scope import-alias collision regressions: renaming onto an existing alias and assigning one new name to two aliases both reject. The three focused module alias tests pass, and the full Docker Go refactor package suite passes under Go 1.25 (53.944s). This adds safety evidence for the capability already credited; weighted progress remains 34.98%.
 
-**Score decision:** No weighted score change this cycle. The existing module-scope alias capability now has explicit collision regressions for occupied and duplicate targets; this is correctness evidence, not a separate capability increment. Weighted progress remains 34.98%.
+**Score decision:** This collision-control cycle adds no new weighted point; 34.98% remains correct. The latest capability increase was module-snapshot explicit alias rename support, which raised the score from 34.90% to 34.98% (+0.08 points).
 
 **Next measurable gate:** Expand held-out method and import-alias cases across packages and build contexts, measure false and missed references, and add external-consumer compatibility checks; then extend semantic propagation to another language.
 
