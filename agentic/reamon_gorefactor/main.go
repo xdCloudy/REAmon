@@ -177,7 +177,7 @@ func main() {
 		writeError("Invalid Go refactor request", 400)
 		return
 	}
-	if len([]byte(req.Source)) > maxSourceBytes && req.Operation != "project_bindings" && req.Operation != "project_rename" {
+	if len([]byte(req.Source)) > maxSourceBytes && req.Operation != "project_bindings" && req.Operation != "project_rename" && req.Operation != "project_module_bindings" && req.Operation != "project_module_rename" {
 		writeError("Go source exceeds the 512 KiB safe-rename limit", 413)
 		return
 	}
@@ -193,6 +193,10 @@ func main() {
 		result, err = listProjectInventory(req)
 	case "project_rename":
 		result, err = applyProjectRenames(req)
+	case "project_module_bindings":
+		result, err = listProjectModuleBindings(req)
+	case "project_module_rename":
+		result, err = applyProjectModuleRenames(req)
 	default:
 		writeError("Unsupported Go refactor operation", 400)
 		return

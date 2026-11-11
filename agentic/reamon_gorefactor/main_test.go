@@ -319,6 +319,143 @@ func TestProjectMethodRenamePreservesLocalInterfaceContracts(t *testing.T) {
 	}
 }
 
+func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Normalize(value int) int { return value + 1 }\n"},
+		{Path: "pkg/use.go", Source: "package pkg\nfunc local() int { return Worker{}.Normalize(2) }\n"},
+		{Path: "cmd/run.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Run() int { return pkg.Worker{}.Normalize(3) }\n"},
+		{Path: "cmd/expression.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Normalize(pkg.Worker{}, 4) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindingsResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+		if raw["name"] == "Normalize" && raw["kind"] == "method" {
+			selected = binding{
+				ID: raw["id"].(string), Name: raw["name"].(string), Kind: raw["kind"].(string),
+				ScopeType: raw["scopeType"].(string), FilePath: raw["relativePath"].(string),
+				ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool),
+			}
+		}
+	}
+	if selected.ID == "" || selected.FilePath != "pkg/model.go" || selected.ReferenceCount != 3 || !selected.Exported {
+		t.Fatalf("module method binding = %+v; want exported declaration and three references across three package files", selected)
+	}
+	if bindingsResult["scope"] != "verified-go-module-source-snapshot" || bindingsResult["source_set_sha256"] != hashProjectSources([]projectSourceFile{
+		{Path: "pkg/model.go", Text: files[0].Source}, {Path: "pkg/use.go", Text: files[1].Source},
+		{Path: "cmd/run.go", Text: files[2].Source}, {Path: "cmd/expression.go", Text: files[3].Source},
+	}) {
+		t.Fatalf("module binding snapshot = %#v", bindingsResult)
+	}
+	original := map[string]string{
+		"pkg/model.go": files[0].Source, "pkg/use.go": files[1].Source,
+		"cmd/run.go": files[2].Source, "cmd/expression.go": files[3].Source,
+	}
+	assertProjectModuleBehavior(t, original, goMod, "original")
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindingsResult["source_sha256"].(string)
+	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Scale"}}
+	result, err := applyProjectModuleRenames(request)
+	if err != nil {
+		t.Fatalf("rename exported method across module packages: %v", err)
+	}
+	outputs := outputsBeforeRename(files)
+	editCounts := make(map[string]int)
+	for _, file := range result["files"].([]map[string]any) {
+		filePath := file["relative_path"].(string)
+		outputs[filePath] = file["source_code"].(string)
+		for _, edit := range file["edits"].([]map[string]any) {
+			start, end := edit["start"].(int), edit["end"].(int)
+			if edit["old_text"] != "Normalize" || edit["new_text"] != "Scale" ||
+				start < 0 || end <= start || end > len(original[filePath]) || original[filePath][start:end] != "Normalize" {
+				t.Fatalf("module rename edit for %s = %#v; want exact Normalize -> Scale byte span", filePath, edit)
+			}
+			editCounts[filePath]++
+		}
+	}
+	wantEditCounts := map[string]int{"pkg/model.go": 1, "pkg/use.go": 1, "cmd/run.go": 1, "cmd/expression.go": 1}
+	if !reflect.DeepEqual(editCounts, wantEditCounts) || outputs["cmd/expression.go"] != "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Scale(pkg.Worker{}, 4) }\n" {
+		t.Fatalf("module outputs/edits = %#v / %#v; want four exact per-file edits", outputs, editCounts)
+	}
+	if result["source_set_sha256"] != bindingsResult["source_set_sha256"] || result["output_source_set_sha256"] == result["source_set_sha256"] {
+		t.Fatalf("module source-set hashes = %v -> %v", result["source_set_sha256"], result["output_source_set_sha256"])
+	}
+	assertProjectModuleBehavior(t, outputs, goMod, "renamed")
+}
+
+func TestProjectModuleMethodRenamePreservesImportedInterfaceContracts(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package pkg\ntype writer struct{}\nfunc (writer) Write(data []byte) (int, error) { return len(data), nil }\n"},
+		{Path: "pkg/api.go", Source: "package pkg\nimport \"io\"\nfunc Accept(value io.Writer) {}\nfunc MakeWriter() io.Writer { return writer{} }\nfunc useWriter() { _, _ = writer{}.Write(nil) }\n"},
+		{Path: "cmd/run.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Run() { pkg.Accept(pkg.MakeWriter()) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	result, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var selected binding
+	for _, raw := range result["bindings"].([]map[string]any) {
+		if raw["name"] == "Write" {
+			selected = binding{ID: raw["id"].(string), Name: "Write", Kind: "method", FilePath: "pkg/model.go"}
+		}
+	}
+	if selected.ID == "" {
+		t.Fatal("exported io.Writer method implementation was not catalogued")
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = result["source_sha256"].(string)
+	request.SourceSetHash = result["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: selected.ID, NewName: "Flush"}}
+	if _, err := applyProjectModuleRenames(request); err == nil {
+		t.Fatal("renaming Write to Flush should break the imported io.Writer implementation contract")
+	}
+}
+
+func TestProjectModuleMethodRenameRejectsChangedSourceSet(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{
+		{Path: "pkg/model.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Normalize(value int) int { return value + 1 }\n"},
+		{Path: "cmd/run.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Run() int { return pkg.Worker{}.Normalize(3) }\n"},
+	}
+	request := goProjectRequest(files, "pkg/model.go")
+	request.Operation = "project_module_bindings"
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	result, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module method bindings: %v", err)
+	}
+	var bindingID string
+	for _, raw := range result["bindings"].([]map[string]any) {
+		if raw["name"] == "Normalize" {
+			bindingID = raw["id"].(string)
+			break
+		}
+	}
+	if bindingID == "" {
+		t.Fatal("exported module method was not catalogued")
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = result["source_sha256"].(string)
+	request.SourceSetHash = result["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: bindingID, NewName: "Scale"}}
+	request.Files[1].Source = strings.ReplaceAll(request.Files[1].Source, "Normalize", "Normalize ")
+	request.Source = request.Files[0].Source
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "module source changed") {
+		t.Fatalf("changed module source error = %v; want stale source-set rejection", err)
+	}
+}
+
 func TestProjectTypeRenameUpdatesEmbeddedFieldReferences(t *testing.T) {
 	request := goProjectRequest([]projectFile{
 		{Path: "pkg/model.go", Source: "package sample\n\ntype entry struct { value int }\n"},
@@ -801,6 +938,44 @@ func assertProjectPackageRenameBehavior(t *testing.T, files map[string]string, b
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s runtime behavior oracle failed: %v\n%s", variant, err, output)
+	}
+}
+
+func assertProjectModuleBehavior(t *testing.T, files map[string]string, goMod, variant string) {
+	t.Helper()
+	root, err := os.MkdirTemp("", "reamon-go-module-rename-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatalf("write %s module manifest: %v", variant, err)
+	}
+	for filePath, source := range files {
+		fullPath := filepath.Join(root, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("create %s fixture directory: %v", variant, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write %s fixture source: %v", variant, err)
+		}
+	}
+	tests := map[string]string{
+		"pkg": "package pkg\nimport \"testing\"\nfunc TestModuleMethodBehavior(t *testing.T) { if got := local(); got != 3 { t.Fatalf(\"local = %d\", got) } }\n",
+		"cmd": "package main\nimport \"testing\"\nfunc TestModuleMethodBehavior(t *testing.T) { if got := Run(); got != 4 { t.Fatalf(\"Run = %d\", got) }; if got := Expression(); got != 5 { t.Fatalf(\"Expression = %d\", got) } }\n",
+	}
+	for directory, source := range tests {
+		fullPath := filepath.Join(root, directory, "module_behavior_test.go")
+		if err := os.WriteFile(fullPath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write %s behavior oracle: %v", variant, err)
+		}
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s module behavior oracle failed: %v\n%s", variant, err, output)
 	}
 }
 
