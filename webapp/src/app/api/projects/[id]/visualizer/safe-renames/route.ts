@@ -22,6 +22,7 @@ import {
 interface RouteParams { params: Promise<{ id: string }> }
 
 const MAX_SOURCE_BYTES = 512 * 1024
+const MAX_GO_PROJECT_SOURCE_BYTES = 2 * 1024 * 1024
 const MAX_SUGGESTION_SOURCE_BYTES = 64 * 1024
 const MAX_CANDIDATES = 200
 const MAX_PROJECT_SYMBOL_SCAN = 4_096
@@ -994,8 +995,8 @@ async function loadVerifiedGoProjectSnapshot(input: {
       throw new GoPackageRenameSnapshotError(`Linked Go source ${unit.relativePath} is unavailable or outside derived storage.`)
     }
     const info = await stat(safePath)
-    if (!info.isFile() || info.size > MAX_SOURCE_BYTES) {
-      throw new GoPackageRenameSnapshotError(`${unit.relativePath} exceeds the 512 KiB whole-project source limit.`, 413)
+    if (!info.isFile() || info.size > MAX_GO_PROJECT_SOURCE_BYTES) {
+      throw new GoPackageRenameSnapshotError(`${unit.relativePath} exceeds the 2 MiB whole-project source limit.`, 413)
     }
     const artifactBytes = await readFile(safePath)
     try {
@@ -1026,7 +1027,7 @@ async function loadVerifiedGoProjectSnapshot(input: {
     }
     const sourceBytes = Buffer.byteLength(sourceCode, 'utf8')
     totalBytes += sourceBytes
-    if (sourceBytes > 512 * 1024 || totalBytes > 8 * 1024 * 1024) {
+    if (sourceBytes > MAX_GO_PROJECT_SOURCE_BYTES || totalBytes > 8 * 1024 * 1024) {
       throw new GoPackageRenameSnapshotError('Whole-project Go source exceeds the 8 MiB inventory limit.', 413)
     }
     files.push({
