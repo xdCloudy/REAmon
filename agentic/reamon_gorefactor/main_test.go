@@ -368,7 +368,7 @@ func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *
 		{Path: "pkg/model.go", Source: "package pkg\ntype Worker struct{}\nfunc (Worker) Normalize(value int) int { return value + 1 }\n"},
 		{Path: "pkg/use.go", Source: "package pkg\nfunc local() int { return Worker{}.Normalize(2) }\n"},
 		{Path: "cmd/run.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Run() int { return pkg.Worker{}.Normalize(3) }\n"},
-		{Path: "cmd/expression.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Normalize(pkg.Worker{}, 4) }\n"},
+		{Path: "cmd/expression.go", Source: "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Normalize(pkg.Worker{}, 4) }\nfunc MethodValue() int { normalize := pkg.Worker{}.Normalize; return normalize(5) }\n"},
 	}
 	request := goProjectRequest(files, "pkg/model.go")
 	request.Operation = "project_module_bindings"
@@ -387,8 +387,8 @@ func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *
 			}
 		}
 	}
-	if selected.ID == "" || selected.FilePath != "pkg/model.go" || selected.ReferenceCount != 3 || !selected.Exported {
-		t.Fatalf("module method binding = %+v; want exported declaration and three references across three package files", selected)
+	if selected.ID == "" || selected.FilePath != "pkg/model.go" || selected.ReferenceCount != 4 || !selected.Exported {
+		t.Fatalf("module method binding = %+v; want exported declaration and four references across three package files", selected)
 	}
 	if bindingsResult["scope"] != "verified-go-module-source-snapshot" || bindingsResult["source_set_sha256"] != hashProjectSources([]projectSourceFile{
 		{Path: "pkg/model.go", Text: files[0].Source}, {Path: "pkg/use.go", Text: files[1].Source},
@@ -423,8 +423,8 @@ func TestProjectModuleMethodRenameUpdatesCrossPackageSelectorsAndExpressions(t *
 			editCounts[filePath]++
 		}
 	}
-	wantEditCounts := map[string]int{"pkg/model.go": 1, "pkg/use.go": 1, "cmd/run.go": 1, "cmd/expression.go": 1}
-	if !reflect.DeepEqual(editCounts, wantEditCounts) || outputs["cmd/expression.go"] != "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Scale(pkg.Worker{}, 4) }\n" {
+	wantEditCounts := map[string]int{"pkg/model.go": 1, "pkg/use.go": 1, "cmd/run.go": 1, "cmd/expression.go": 2}
+	if !reflect.DeepEqual(editCounts, wantEditCounts) || outputs["cmd/expression.go"] != "package main\nimport \"example.test/app/pkg\"\nfunc Expression() int { return pkg.Worker.Scale(pkg.Worker{}, 4) }\nfunc MethodValue() int { normalize := pkg.Worker{}.Scale; return normalize(5) }\n" {
 		t.Fatalf("module outputs/edits = %#v / %#v; want four exact per-file edits", outputs, editCounts)
 	}
 	if result["source_set_sha256"] != bindingsResult["source_set_sha256"] || result["output_source_set_sha256"] == result["source_set_sha256"] {
@@ -1436,7 +1436,7 @@ func assertProjectModuleBehavior(t *testing.T, files map[string]string, goMod, v
 	}
 	tests := map[string]string{
 		"pkg": "package pkg\nimport \"testing\"\nfunc TestModuleMethodBehavior(t *testing.T) { if got := local(); got != 3 { t.Fatalf(\"local = %d\", got) } }\n",
-		"cmd": "package main\nimport \"testing\"\nfunc TestModuleMethodBehavior(t *testing.T) { if got := Run(); got != 4 { t.Fatalf(\"Run = %d\", got) }; if got := Expression(); got != 5 { t.Fatalf(\"Expression = %d\", got) } }\n",
+		"cmd": "package main\nimport \"testing\"\nfunc TestModuleMethodBehavior(t *testing.T) { if got := Run(); got != 4 { t.Fatalf(\"Run = %d\", got) }; if got := Expression(); got != 5 { t.Fatalf(\"Expression = %d\", got) }; if got := MethodValue(); got != 6 { t.Fatalf(\"MethodValue = %d\", got) } }\n",
 	}
 	for directory, source := range tests {
 		fullPath := filepath.Join(root, directory, "module_behavior_test.go")
