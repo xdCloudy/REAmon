@@ -36,6 +36,23 @@
       "build_contexts": [
         {"goos": "js", "goarch": "wasm", "selected_path": "isatty_others.go", "expected_package_tp": 2, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 4, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 0}
       ]
+    },
+    {
+      "name": "httprouter-v1.3.0",
+      "module_path": "github.com/julienschmidt/httprouter",
+      "go_mod_fixture_path": "upstream_httprouter_v1_3_0/go.mod",
+      "go_mod_sha256": "b845c771120429f2f164968091d264f7be36319f1c707579c05d2f7c759e4dca",
+      "selected_path": "router.go",
+      "files": [
+        {"fixture_path": "upstream_httprouter_v1_3_0/path.go", "inventory_path": "path.go", "sha256": "97f491564b35d2a8026bc0524cb4bc4ef1201fe24c1d8b6dab28967fb122ebb7"},
+        {"fixture_path": "upstream_httprouter_v1_3_0/router.go", "inventory_path": "router.go", "sha256": "4e7e97a6785ab9570a51bbbb609c0583961bbf79798c44b5810a3d67e619279f"},
+        {"fixture_path": "upstream_httprouter_v1_3_0/tree.go", "inventory_path": "tree.go", "sha256": "223b95fb7a7ded30931f37a0a30cabae50533e3f6a01be1f5139024f3e8a2ebf"}
+      ],
+      "build_contexts": [
+        {"goos": "linux", "goarch": "amd64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42},
+        {"goos": "windows", "goarch": "amd64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42},
+        {"goos": "linux", "goarch": "arm64", "selected_path": "router.go", "expected_package_tp": 20, "expected_package_fp": 0, "expected_package_fn": 0, "expected_all_scope_tp": 238, "expected_all_scope_fp": 0, "expected_all_scope_fn": 0, "expected_member_count": 42}
+      ]
     }
   ]
 }

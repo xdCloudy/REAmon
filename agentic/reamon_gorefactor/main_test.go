@@ -613,6 +613,144 @@ func assertPinnedGorillaMuxMethodRename(t *testing.T, renameFixture projectModul
 	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renamedRouterMethod, renamedRouteMethod, "renamed")
 }
 
+func TestProjectModuleRenamePinnedHttprouterV130(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_inventory_holdout_v1.json"))
+	if err != nil {
+		t.Fatalf("read pinned httprouter source manifest: %v", err)
+	}
+	var sourceCorpus projectInventoryRecallCorpus
+	if err := json.Unmarshal(manifestBytes, &sourceCorpus); err != nil {
+		t.Fatalf("parse pinned httprouter source manifest: %v", err)
+	}
+	var fixture *projectInventoryRecallFixture
+	for i := range sourceCorpus.Fixtures {
+		if sourceCorpus.Fixtures[i].Name == "httprouter-v1.3.0" {
+			fixture = &sourceCorpus.Fixtures[i]
+			break
+		}
+	}
+	if fixture == nil || fixture.ModulePath != "github.com/julienschmidt/httprouter" || len(fixture.BuildContexts) != 3 {
+		t.Fatalf("pinned httprouter fixture = %+v; want v1.3.0 and three build contexts", fixture)
+	}
+	goModBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(fixture.GoModFixture)))
+	if err != nil {
+		t.Fatalf("read pinned httprouter go.mod: %v", err)
+	}
+	if hashText(string(goModBytes)) != fixture.GoModSHA256 {
+		t.Fatal("pinned httprouter go.mod hash changed")
+	}
+	licenseBytes, err := os.ReadFile(filepath.Join("testdata", "upstream_httprouter_v1_3_0", "LICENSE"))
+	if err != nil {
+		t.Fatalf("read pinned httprouter license: %v", err)
+	}
+	if hashText(string(licenseBytes)) != "be2fba5f724dac799186e37da036d172c6e20a9ffbeff35f99473141d4b85463" {
+		t.Fatal("pinned httprouter license hash changed")
+	}
+	files := make([]projectFile, 0, len(fixture.Files))
+	for _, sourceFile := range fixture.Files {
+		content, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(sourceFile.FixturePath)))
+		if err != nil {
+			t.Fatalf("read pinned httprouter source %s: %v", sourceFile.InventoryPath, err)
+		}
+		if hashText(string(content)) != sourceFile.SHA256 {
+			t.Fatalf("pinned httprouter source hash changed: %s", sourceFile.InventoryPath)
+		}
+		files = append(files, projectFile{Path: sourceFile.InventoryPath, Source: string(content)})
+	}
+
+	var linuxOutputs map[string]string
+	for _, build := range fixture.BuildContexts {
+		build := build
+		t.Run(build.GOOS+"/"+build.GOARCH, func(t *testing.T) {
+			request := goProjectRequest(files, "router.go")
+			request.Operation = "project_module_bindings"
+			request.ModulePath, request.GoMod, request.GoModHash = fixture.ModulePath, string(goModBytes), fixture.GoModSHA256
+			request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+			catalogResult, err := listProjectModuleBindings(request)
+			if err != nil {
+				t.Fatalf("catalog pinned httprouter module: %v", err)
+			}
+			var selected binding
+			for _, raw := range catalogResult["bindings"].([]map[string]any) {
+				if raw["name"] == "Handle" && raw["relativePath"] == "router.go" {
+					selected = binding{ID: raw["id"].(string), Name: "Handle", ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported || selected.ReferenceCount != 8 {
+				t.Fatalf("pinned Handle binding = %+v; want exported declaration and eight resolved in-module references", selected)
+			}
+
+			request.Operation = "project_module_rename"
+			request.ExpectedHash = catalogResult["source_sha256"].(string)
+			request.SourceSetHash = catalogResult["source_set_sha256"].(string)
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: "Register"}}
+			result, err := applyProjectModuleRenames(request)
+			if err != nil {
+				t.Fatalf("rename pinned httprouter Handle: %v", err)
+			}
+			renamedBindings := result["renamed_bindings"].([]map[string]any)
+			if len(renamedBindings) != 1 || renamedBindings[0]["oldName"] != "Handle" || renamedBindings[0]["newName"] != "Register" || renamedBindings[0]["exported"] != true {
+				t.Fatalf("pinned httprouter rename disclosure = %#v; want exported Handle -> Register", renamedBindings)
+			}
+			outputs := outputsBeforeRename(files)
+			editCount := 0
+			for _, output := range result["files"].([]map[string]any) {
+				filePath := output["relative_path"].(string)
+				outputs[filePath] = output["source_code"].(string)
+				for _, edit := range output["edits"].([]map[string]any) {
+					start, startOK := edit["start"].(int)
+					end, endOK := edit["end"].(int)
+					source := filesByPath(files)[filePath]
+					if edit["old_text"] != "Handle" || edit["new_text"] != "Register" || !startOK || !endOK || start < 0 || end > len(source) || source[start:end] != "Handle" {
+						t.Fatalf("pinned httprouter edit for %s = %#v; want exact Handle -> Register byte span", filePath, edit)
+					}
+					editCount++
+				}
+			}
+			if editCount != 9 {
+				t.Fatalf("pinned httprouter rename emitted %d edits; want declaration plus eight references", editCount)
+			}
+			if build.GOOS == "linux" && build.GOARCH == "amd64" {
+				linuxOutputs = outputs
+			}
+		})
+	}
+	if linuxOutputs == nil {
+		t.Fatal("pinned Linux/amd64 httprouter rename did not produce outputs")
+	}
+	assertHttprouterModuleBehavior(t, outputsBeforeRename(files), string(goModBytes), "Handle", "original")
+	assertHttprouterModuleBehavior(t, linuxOutputs, string(goModBytes), "Register", "renamed")
+}
+
+func assertHttprouterModuleBehavior(t *testing.T, files map[string]string, goMod, methodName, variant string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte(goMod), 0o600); err != nil {
+		t.Fatalf("write pinned httprouter %s go.mod: %v", variant, err)
+	}
+	for filePath, source := range files {
+		fullPath := filepath.Join(root, filepath.FromSlash(filePath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("create pinned httprouter %s source directory: %v", variant, err)
+		}
+		if err := os.WriteFile(fullPath, []byte(source), 0o600); err != nil {
+			t.Fatalf("write pinned httprouter %s source: %v", variant, err)
+		}
+	}
+	testSource := fmt.Sprintf("package httprouter\nimport (\"net/http\"; \"net/http/httptest\"; \"testing\")\nfunc TestHeldOutModuleRenameBehavior(t *testing.T) { router := New(); router.%s(http.MethodGet, \"/user/:name\", func(w http.ResponseWriter, _ *http.Request, params Params) { _, _ = w.Write([]byte(params.ByName(\"name\"))) }); response := httptest.NewRecorder(); router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, \"/user/alice\", nil)); if response.Code != http.StatusOK || response.Body.String() != \"alice\" { t.Fatalf(\"route behavior changed: %%d %%q\", response.Code, response.Body.String()) } }\n", methodName)
+	if err := os.WriteFile(filepath.Join(root, "module_rename_test.go"), []byte(testSource), 0o600); err != nil {
+		t.Fatalf("write pinned httprouter %s behavior oracle: %v", variant, err)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = root
+	command.Env = append(os.Environ(), "GO111MODULE=on", "GOTOOLCHAIN=local", "GOWORK=off", "GOPROXY=off", "GOSUMDB=off")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("pinned httprouter %s behavior oracle failed: %v\n%s", variant, err, output)
+	}
+}
+
 func TestProjectModuleRenamePinnedGoogleUUIDPreservesStandardInterfaces(t *testing.T) {
 	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_module_rename_holdout_v1.json"))
 	if err != nil {
@@ -1896,8 +2034,8 @@ func TestProjectInventoryHeldOutPackageSymbolPrecisionRecallV1(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &corpus); err != nil {
 		t.Fatalf("parse held-out project inventory manifest: %v", err)
 	}
-	if corpus.Version != 1 || len(corpus.Fixtures) != 2 {
-		t.Fatalf("held-out corpus version/fixture count = %d/%d; want 1/2", corpus.Version, len(corpus.Fixtures))
+	if corpus.Version != 1 || len(corpus.Fixtures) != 3 {
+		t.Fatalf("held-out corpus version/fixture count = %d/%d; want 1/3", corpus.Version, len(corpus.Fixtures))
 	}
 
 	for _, fixture := range corpus.Fixtures {
