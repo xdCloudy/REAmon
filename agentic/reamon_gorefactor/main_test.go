@@ -588,6 +588,41 @@ func TestProjectModuleImportAliasRenameRejectsLocalCapture(t *testing.T) {
 	}
 }
 
+func TestProjectModuleImportAliasRenameRejectsAliasCollisions(t *testing.T) {
+	goMod := "module example.test/app\n\ngo 1.25\n"
+	files := []projectFile{{Path: "pkg/use.go", Source: "package pkg\nimport (first \"fmt\"; second \"strings\")\nfunc Run() string { return first.Sprint(second.TrimSpace(\" value \")) }\n"}}
+	request := goProjectRequest(files, "pkg/use.go")
+	request.ModulePath, request.GoMod, request.GoModHash = "example.test/app", goMod, hashText(goMod)
+	bindingsResult, err := listProjectModuleBindings(request)
+	if err != nil {
+		t.Fatalf("list module bindings: %v", err)
+	}
+	aliases := make(map[string]binding)
+	for _, raw := range bindingsResult["bindings"].([]map[string]any) {
+		if raw["kind"] == "file import alias" {
+			name := raw["name"].(string)
+			aliases[name] = binding{ID: raw["id"].(string), Name: name, Kind: raw["kind"].(string), ScopeType: raw["scopeType"].(string), FilePath: raw["relativePath"].(string)}
+		}
+	}
+	if aliases["first"].ID == "" || aliases["second"].ID == "" {
+		t.Fatalf("module import aliases = %#v; want both explicit aliases", aliases)
+	}
+	request.Operation = "project_module_rename"
+	request.ExpectedHash = bindingsResult["source_sha256"].(string)
+	request.SourceSetHash = bindingsResult["source_set_sha256"].(string)
+	request.Renames = []renameSelection{{ID: aliases["first"].ID, NewName: "second"}}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "collide with an import alias") {
+		t.Fatalf("rename onto an existing alias = %v; want import-scope collision rejection", err)
+	}
+	request.Renames = []renameSelection{
+		{ID: aliases["first"].ID, NewName: "common"},
+		{ID: aliases["second"].ID, NewName: "common"},
+	}
+	if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), "cannot share a new name") {
+		t.Fatalf("rename two aliases to one target = %v; want duplicate-target rejection", err)
+	}
+}
+
 func assertProjectModuleAliasBehavior(t *testing.T, files map[string]string, goMod, variant string) {
 	t.Helper()
 	root, err := os.MkdirTemp("", "reamon-go-module-alias-")
