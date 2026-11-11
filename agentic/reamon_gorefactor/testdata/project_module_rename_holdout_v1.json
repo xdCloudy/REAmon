@@ -17,5 +17,22 @@
         { "goos": "windows", "goarch": "amd64" }
       ]
     }
+  ],
+  "reject_cases": [
+    {
+      "name": "google-uuid-v1.6.0-exported-String",
+      "source_manifest": "project_inventory_v1.json",
+      "source_fixture_name": "google-uuid-v1.6.0-selected-source",
+      "selected_path": "uuid/uuid.go",
+      "old_name": "String",
+      "new_name": "Text",
+      "expected_references": 3,
+      "expected_error": "Go rename would change a module or imported interface implementation contract",
+      "build_contexts": [
+        { "goos": "linux", "goarch": "amd64" },
+        { "goos": "windows", "goarch": "amd64" },
+        { "goos": "linux", "goarch": "arm64" }
+      ]
+    }
   ]
 }

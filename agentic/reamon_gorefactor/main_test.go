@@ -108,8 +108,9 @@ type projectInventoryRecallBuild struct {
 }
 
 type projectModuleRenameCorpus struct {
-	Version  int                          `json:"version"`
-	Fixtures []projectModuleRenameFixture `json:"fixtures"`
+	Version     int                                `json:"version"`
+	Fixtures    []projectModuleRenameFixture       `json:"fixtures"`
+	RejectCases []projectModuleRenameRejectFixture `json:"reject_cases"`
 }
 
 type projectModuleRenameFixture struct {
@@ -127,6 +128,18 @@ type projectModuleRenameFixture struct {
 type projectModuleRenameBuild struct {
 	GOOS   string `json:"goos"`
 	GOARCH string `json:"goarch"`
+}
+
+type projectModuleRenameRejectFixture struct {
+	Name               string                     `json:"name"`
+	SourceManifest     string                     `json:"source_manifest"`
+	SourceFixtureName  string                     `json:"source_fixture_name"`
+	SelectedPath       string                     `json:"selected_path"`
+	OldName            string                     `json:"old_name"`
+	NewName            string                     `json:"new_name"`
+	ExpectedReferences int                        `json:"expected_references"`
+	ExpectedError      string                     `json:"expected_error"`
+	BuildContexts      []projectModuleRenameBuild `json:"build_contexts"`
 }
 
 func bindingNamed(t *testing.T, cat *catalog, name string, declarationStart int) binding {
@@ -548,6 +561,92 @@ func TestProjectModuleRenamePinnedGorillaMuxV181(t *testing.T) {
 	}
 	assertGorillaModuleBehavior(t, outputsBeforeRename(files), string(goModBytes), renameFixture.OldName, "original")
 	assertGorillaModuleBehavior(t, linuxOutputs, string(goModBytes), renameFixture.NewName, "renamed")
+}
+
+func TestProjectModuleRenamePinnedGoogleUUIDPreservesStringerInterface(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "project_module_rename_holdout_v1.json"))
+	if err != nil {
+		t.Fatalf("read pinned module rename manifest: %v", err)
+	}
+	var renameCorpus projectModuleRenameCorpus
+	if err := json.Unmarshal(manifestBytes, &renameCorpus); err != nil {
+		t.Fatalf("parse pinned module rename manifest: %v", err)
+	}
+	if renameCorpus.Version != 1 || len(renameCorpus.RejectCases) != 1 {
+		t.Fatalf("module rename corpus version/rejection count = %d/%d; want 1/1", renameCorpus.Version, len(renameCorpus.RejectCases))
+	}
+	rejectFixture := renameCorpus.RejectCases[0]
+	if rejectFixture.Name != "google-uuid-v1.6.0-exported-String" || rejectFixture.ExpectedError == "" || len(rejectFixture.BuildContexts) != 3 {
+		t.Fatalf("pinned interface rejection fixture = %+v; want three build contexts", rejectFixture)
+	}
+	sourceManifestBytes, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(rejectFixture.SourceManifest)))
+	if err != nil {
+		t.Fatalf("read pinned UUID source manifest: %v", err)
+	}
+	var sourceCorpus projectInventoryCorpus
+	if err := json.Unmarshal(sourceManifestBytes, &sourceCorpus); err != nil {
+		t.Fatalf("parse pinned UUID source manifest: %v", err)
+	}
+	var fixture *projectInventoryFixture
+	for i := range sourceCorpus.Fixtures {
+		if sourceCorpus.Fixtures[i].Name == rejectFixture.SourceFixtureName {
+			fixture = &sourceCorpus.Fixtures[i]
+			break
+		}
+	}
+	if fixture == nil || fixture.ModulePath != "github.com/google/uuid" {
+		t.Fatalf("pinned UUID module fixture = %+v", fixture)
+	}
+	files := make([]projectFile, 0, len(fixture.Files))
+	var selectedSource string
+	for _, sourceFile := range fixture.Files {
+		content, err := os.ReadFile(filepath.Join("testdata", filepath.FromSlash(sourceFile.FixturePath)))
+		if err != nil {
+			t.Fatalf("read pinned UUID source %s: %v", sourceFile.InventoryPath, err)
+		}
+		if hashText(string(content)) != sourceFile.SHA256 {
+			t.Fatalf("pinned UUID source hash changed: %s", sourceFile.InventoryPath)
+		}
+		files = append(files, projectFile{Path: sourceFile.InventoryPath, Source: string(content)})
+		if sourceFile.InventoryPath == rejectFixture.SelectedPath {
+			selectedSource = string(content)
+		}
+	}
+	if selectedSource == "" || !strings.Contains(selectedSource, "func (uuid UUID) String()") {
+		t.Fatal("pinned UUID source does not contain the selected String method")
+	}
+	for _, build := range rejectFixture.BuildContexts {
+		build := build
+		t.Run(build.GOOS+"/"+build.GOARCH, func(t *testing.T) {
+			request := goProjectRequest(files, rejectFixture.SelectedPath)
+			request.Operation = "project_module_bindings"
+			request.ModulePath, request.GoMod = fixture.ModulePath, fixture.GoMod
+			request.GoModHash = hashText(fixture.GoMod)
+			request.BuildGOOS, request.BuildGOARCH = build.GOOS, build.GOARCH
+			catalogResult, err := listProjectModuleBindings(request)
+			if err != nil {
+				t.Fatalf("catalog pinned UUID module: %v", err)
+			}
+			declarationOffset := strings.Index(selectedSource, "func (uuid UUID) String()") + len("func (uuid UUID) ")
+			var selected binding
+			for _, raw := range catalogResult["bindings"].([]map[string]any) {
+				if raw["name"] == rejectFixture.OldName && raw["relativePath"] == rejectFixture.SelectedPath && raw["declarationStart"] == declarationOffset {
+					selected = binding{ID: raw["id"].(string), Name: rejectFixture.OldName, ReferenceCount: raw["referenceCount"].(int), Exported: raw["exported"].(bool)}
+					break
+				}
+			}
+			if selected.ID == "" || !selected.Exported || selected.ReferenceCount != rejectFixture.ExpectedReferences {
+				t.Fatalf("pinned UUID interface method binding = %+v; want %d in-module references", selected, rejectFixture.ExpectedReferences)
+			}
+			request.Operation = "project_module_rename"
+			request.ExpectedHash = catalogResult["source_sha256"].(string)
+			request.SourceSetHash = catalogResult["source_set_sha256"].(string)
+			request.Renames = []renameSelection{{ID: selected.ID, NewName: rejectFixture.NewName}}
+			if _, err := applyProjectModuleRenames(request); err == nil || !strings.Contains(err.Error(), rejectFixture.ExpectedError) {
+				t.Fatalf("%s rename error = %v; want %q", build.GOOS+"/"+build.GOARCH, err, rejectFixture.ExpectedError)
+			}
+		})
+	}
 }
 
 func filesByPath(files []projectFile) map[string]string {
