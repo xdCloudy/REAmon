@@ -421,7 +421,7 @@ func matchesProjectMethod(candidate, selected *types.Func, receiverName string) 
 
 func projectValidationBuildContexts(current goBuildContext) []goBuildContext {
 	contexts := []goBuildContext{current}
-	for _, target := range [][2]string{{"linux", "amd64"}, {"windows", "amd64"}, {"linux", "arm64"}, {"windows", "arm64"}, {"js", "wasm"}} {
+	for _, target := range [][2]string{{"linux", "amd64"}, {"windows", "amd64"}, {"linux", "arm64"}, {"windows", "arm64"}, {"js", "wasm"}, {"darwin", "arm64"}} {
 		context := current
 		context.GOOS, context.GOARCH = target[0], target[1]
 		if context.GOOS == current.GOOS && context.GOARCH == current.GOARCH {

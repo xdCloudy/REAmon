@@ -1505,6 +1505,7 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 		"consumer_linux_arm64.go":   "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 		"consumer_windows_arm64.go": "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 		"consumer_js_wasm.go":       "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
+		"consumer_darwin_arm64.go":  "package consumer\nimport \"example.test/app/pkg\"\nfunc Use() any { return pkg.Worker{} }\n",
 	}
 	files := []projectFile{{
 		Path:   "pkg/api.go",
@@ -1558,7 +1559,7 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 			}
 			contexts, ok := compatibility["checked_build_contexts"].([]map[string]any)
 			if !ok {
-				t.Fatalf("downstream checked build contexts = %#v; want three platform receipts", compatibility["checked_build_contexts"])
+				t.Fatalf("downstream checked build contexts = %#v; want target receipts", compatibility["checked_build_contexts"])
 			}
 			seen := make(map[string]bool, len(contexts))
 			for _, context := range contexts {
@@ -1567,8 +1568,8 @@ func TestProjectModuleExportedRenameReportsCheckedDownstreamCompatibility(t *tes
 					t.Fatalf("downstream checked build tags = %#v; want the requested custom tag", context["build_tags"])
 				}
 			}
-			if len(seen) != 5 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] || !seen["windows/arm64"] || !seen["js/wasm"] {
-				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64, Windows/arm64, and JS/wasm", contexts)
+			if len(seen) != 6 || !seen["linux/amd64"] || !seen["windows/amd64"] || !seen["linux/arm64"] || !seen["windows/arm64"] || !seen["js/wasm"] || !seen["darwin/arm64"] {
+				t.Fatalf("downstream checked build contexts = %#v; want Linux/amd64, Windows/amd64, Linux/arm64, Windows/arm64, JS/wasm, and Darwin/arm64", contexts)
 			}
 		})
 	}
@@ -1723,6 +1724,7 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 	files := []projectFile{
 		{Path: "pkg/api.go", Source: "package pkg\ntype Worker struct{}\ntype Other struct{}\n"},
 		{Path: "pkg/api_linux.go", Source: "package pkg\nfunc (Worker) Do() int { return 7 }\nfunc linuxUse() int { return Worker{}.Do() }\n"},
+		{Path: "pkg/api_darwin.go", Source: "package pkg\nfunc (Worker) Do() int { return 12 }\nfunc darwinUse() int { return Worker{}.Do() }\n"},
 		{Path: "pkg/api_windows.go", Source: "package pkg\nfunc (Worker) Do() int { return 9 }\nfunc windowsUse() int { return Worker{}.Do() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n"},
 	}
 	request := goProjectRequest(files, "pkg/api_linux.go")
@@ -1766,6 +1768,7 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 		changedSources[file["relative_path"].(string)] = file["source_code"].(string)
 	}
 	want := map[string]string{
+		"pkg/api_darwin.go":  "package pkg\nfunc (Worker) Serve() int { return 12 }\nfunc darwinUse() int { return Worker{}.Serve() }\n",
 		"pkg/api_linux.go":   "package pkg\nfunc (Worker) Serve() int { return 7 }\nfunc linuxUse() int { return Worker{}.Serve() }\n",
 		"pkg/api_windows.go": "package pkg\nfunc (Worker) Serve() int { return 9 }\nfunc windowsUse() int { return Worker{}.Serve() }\nfunc (Other) Do() int { return 11 }\nfunc otherUse() int { return Other{}.Do() }\n",
 	}
@@ -1778,13 +1781,13 @@ func TestProjectModuleExportedMethodRenameCoordinatesPlatformVariants(t *testing
 		}
 	}
 	renamed, ok := result["renamed_bindings"].([]map[string]any)
-	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 2 {
-		t.Fatalf("platform-variant method receipt = %#v; want both in-module references", result["renamed_bindings"])
+	if !ok || len(renamed) != 1 || renamed[0]["referenceCount"] != 3 {
+		t.Fatalf("platform-variant method receipt = %#v; want all three in-module references", result["renamed_bindings"])
 	}
 	compatibility := result["downstream_compatibility"].(map[string]any)
 	contexts, ok := compatibility["checked_build_contexts"].([]map[string]any)
-	if compatibility["status"] != "checked" || !ok || len(contexts) != 5 {
-		t.Fatalf("platform-variant downstream receipt = %#v; want five checked target contexts", compatibility)
+	if compatibility["status"] != "checked" || !ok || len(contexts) != 6 {
+		t.Fatalf("platform-variant downstream receipt = %#v; want six checked target contexts", compatibility)
 	}
 }
 
