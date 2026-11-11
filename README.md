@@ -137,7 +137,7 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (35.30% → 35
 
 **Next measurable gate:** Add an automatic downstream-consumer compatibility check for exported-name renames, then extend semantic propagation beyond Go and measure broader held-out accuracy.
 
-Refreshed from pushed commit `42f5343`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `2b38d3d`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
