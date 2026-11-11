@@ -1008,6 +1008,34 @@ func buildProjectCatalogWithImporter(req request, packageImporter types.Importer
 			Object: method, Declaration: identifier, Uses: uses,
 		})
 	}
+	for _, file := range parsed {
+		for _, spec := range file.AST.Imports {
+			if spec.Name == nil {
+				continue // Implicit imports have no source declaration identifier to edit.
+			}
+			object, ok := info.Defs[spec.Name].(*types.PkgName)
+			if !ok || object.Name() == "_" || object.Name() == "." {
+				continue
+			}
+			uses := []*ast.Ident{spec.Name}
+			for ident, used := range info.Uses {
+				if used == object {
+					uses = append(uses, ident)
+				}
+			}
+			if len(uses) <= 1 {
+				continue
+			}
+			position := fileSet.PositionFor(spec.Name.Pos(), false)
+			sort.Slice(uses[1:], func(i, j int) bool { return uses[i+1].Pos() < uses[j+1].Pos() })
+			cat.Bindings = append(cat.Bindings, binding{
+				ID:       shortID(projectHash+"\x00"+file.Path, position.Offset, spec.Name.Name),
+				FilePath: file.Path, Name: spec.Name.Name, Kind: "file import alias", ScopeType: "file",
+				DeclarationStart: position.Offset, ReferenceCount: len(uses) - 1,
+				Object: object, Scope: object.Parent(), Declaration: spec.Name, Uses: uses,
+			})
+		}
+	}
 	sort.Slice(cat.Bindings, func(i, j int) bool {
 		if cat.Bindings[i].FilePath != cat.Bindings[j].FilePath {
 			return cat.Bindings[i].FilePath < cat.Bindings[j].FilePath
@@ -1859,7 +1887,7 @@ func applyProjectRenames(req request) (map[string]any, error) {
 	seen := make(map[string]bool)
 	for _, choice := range req.Renames {
 		item, ok := byID[choice.ID]
-		validScope := item.ScopeType == "package" || (item.ScopeType == "member" && item.Kind == "method")
+		validScope := item.ScopeType == "package" || (item.ScopeType == "member" && item.Kind == "method") || (item.ScopeType == "file" && item.Kind == "file import alias")
 		if !ok || !validScope || item.FilePath != cat.SelectedPath || seen[choice.ID] || len(choice.NewName) > 128 || !token.IsIdentifier(choice.NewName) || token.Lookup(choice.NewName).IsKeyword() || choice.NewName == item.Name {
 			return nil, fmt.Errorf("A selected Go rename no longer matches a binding in the selected package")
 		}
@@ -1872,6 +1900,7 @@ func applyProjectRenames(req request) (map[string]any, error) {
 	}
 	targets := make(map[string]bool)
 	methodTargets := make(map[types.Object]map[string]bool)
+	fileAliasTargets := make(map[string]map[string]bool)
 	for _, choice := range selected {
 		if choice.item.ScopeType == "package" {
 			if targets[choice.newName] {
@@ -1887,6 +1916,17 @@ func applyProjectRenames(req request) (map[string]any, error) {
 						return nil, fmt.Errorf("Renaming %s to %s would capture a Go binding", choice.item.Name, choice.newName)
 					}
 				}
+			}
+		} else if choice.item.ScopeType == "file" {
+			if fileAliasTargets[choice.item.FilePath] == nil {
+				fileAliasTargets[choice.item.FilePath] = make(map[string]bool)
+			}
+			if fileAliasTargets[choice.item.FilePath][choice.newName] {
+				return nil, fmt.Errorf("Two import aliases in the same Go file cannot share a new name")
+			}
+			fileAliasTargets[choice.item.FilePath][choice.newName] = true
+			if existing := choice.item.Object.Parent().Lookup(choice.newName); existing != nil && existing != choice.item.Object && !selectedObjects[existing] {
+				return nil, fmt.Errorf("Renaming %s to %s would collide with an import alias in the same file", choice.item.Name, choice.newName)
 			}
 		} else {
 			receiver, ok := receiverNamedObject(choice.item.Object)

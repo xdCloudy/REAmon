@@ -221,6 +221,75 @@ func TestProjectRenameUpdatesResolvedReferencesAcrossFiles(t *testing.T) {
 	}
 }
 
+func TestProjectRenameUpdatesExplicitImportAliasAndSameFileReferences(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/use.go", Source: "package sample\nimport text \"strings\"\nfunc normalize(value string) string { return text.TrimSpace(text.Join([]string{value}, \"\")) }\n"},
+		{Path: "pkg/other.go", Source: "package sample\nfunc run() string { return normalize(\" value \") }\n"},
+	}
+	request := goProjectRequest(files, "pkg/use.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alias binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "text" {
+			alias = item
+		}
+	}
+	if alias.ID == "" || alias.Kind != "file import alias" || alias.ScopeType != "file" || alias.ReferenceCount != 2 || len(alias.Uses) != 3 {
+		t.Fatalf("import alias binding = %+v; want declaration and two same-file references", alias)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: alias.ID, NewName: "strlib"}}
+	result, err := applyProjectRenames(request)
+	if err != nil {
+		t.Fatalf("rename explicit import alias: %v", err)
+	}
+	outputs := make(map[string]string)
+	editCount := 0
+	for _, file := range result["files"].([]map[string]any) {
+		outputs[file["relative_path"].(string)] = file["source_code"].(string)
+		for _, edit := range file["edits"].([]map[string]any) {
+			if edit["old_text"] != "text" || edit["new_text"] != "strlib" {
+				t.Fatalf("import alias edit = %#v; want text -> strlib", edit)
+			}
+			editCount++
+		}
+	}
+	if editCount != 3 || !strings.Contains(outputs["pkg/use.go"], "import strlib \"strings\"") || !strings.Contains(outputs["pkg/use.go"], "strlib.TrimSpace(strlib.Join") || outputs["pkg/other.go"] != "" {
+		t.Fatalf("import alias output/edits = %#v / %d; want three edits in the selected file only", outputs, editCount)
+	}
+}
+
+func TestProjectRenameRejectsImportAliasCaptureByLocalBinding(t *testing.T) {
+	files := []projectFile{
+		{Path: "pkg/use.go", Source: "package sample\nimport old \"fmt\"\nfunc run() string { format := struct { Sprint func(...any) string }{Sprint: func(...any) string { return \"local\" }}; _ = format; return old.Sprint(\"value\") }\nfunc other() string { return old.Sprint(\"other\") }\n"},
+		{Path: "pkg/other.go", Source: "package sample\nfunc siblingOnly() {}\n"},
+	}
+	request := goProjectRequest(files, "pkg/use.go")
+	catalog, err := buildProjectCatalog(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alias binding
+	for _, item := range catalog.Bindings {
+		if item.Name == "old" {
+			alias = item
+		}
+	}
+	if alias.ID == "" || alias.ReferenceCount != 2 {
+		t.Fatalf("import alias binding = %+v; want two resolved selectors", alias)
+	}
+	request.Operation = "project_rename"
+	request.ExpectedHash, request.SourceSetHash = catalog.SelectedHash, catalog.SourceSetHash
+	request.Renames = []renameSelection{{ID: alias.ID, NewName: "format"}}
+	if _, err := applyProjectRenames(request); err == nil || !strings.Contains(err.Error(), "would change a package binding") {
+		t.Fatalf("rename capturing the import selector = %v; want binding-identity rejection", err)
+	}
+}
+
 func TestProjectMethodRenameUpdatesSelectorsAcrossFilesAndPreservesBehavior(t *testing.T) {
 	files := []projectFile{
 		{Path: "pkg/model.go", Source: "package sample\ntype worker struct{}\nfunc (worker) normalize(value int) int { return value + 1 }\nfunc (worker) Normalize(value int) int { return value }\n"},

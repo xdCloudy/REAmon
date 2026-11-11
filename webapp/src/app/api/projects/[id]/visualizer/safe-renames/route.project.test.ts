@@ -39,6 +39,7 @@ const selectedOutput = 'package sample\nfunc scale(value int) int { return value
 const siblingOutput = 'package sample\nfunc run() int { return scale(1) }\n'
 const bindingId = '0123456789abcdef01234567'
 const methodBindingId = 'fedcba9876543210fedcba98'
+const importAliasBindingId = '1234567890abcdef12345678'
 const inventoryPayload = {
   scope: 'reviewed-same-directory-go-package-source-snapshot', source_file_count: 2,
   private_package_symbol_count: 2, referenced_private_package_symbols: 1, unreferenced_private_symbols: 1,
@@ -183,6 +184,37 @@ beforeEach(async () => {
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }) })
 
 describe('POST safe-renames Go package scope', () => {
+  it('accepts and proposes a referenced explicit import alias from the Go helper catalog', async () => {
+    const baseImplementation = h.agentFetch.getMockImplementation()
+    if (!baseImplementation) throw new Error('Expected the Go project helper fixture')
+    h.agentFetch.mockImplementation(async (url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body)) as Record<string, unknown>
+      if (url === '/reamon/code/go/refactor' && request.operation === 'project_bindings') {
+        const response = await baseImplementation(url, init)
+        const payload = await response.json() as Record<string, unknown>
+        return jsonResponse({ ...payload, bindings: [
+          ...(payload.bindings as Array<Record<string, unknown>>),
+          { id: importAliasBindingId, name: 'f', kind: 'file import alias', scopeType: 'file', declarationStart: 20, referenceCount: 1, relativePath: selectedPath, exported: false },
+        ] })
+      }
+      if (url === '/reamon/code/suggest-renames') {
+        const requestBindings = (request.bindings as Array<Record<string, unknown>>) || []
+        expect(requestBindings).toContainEqual(expect.objectContaining({ id: importAliasBindingId, name: 'f', kind: 'file import alias', scopeType: 'file' }))
+        return jsonResponse({ renames: [{ bindingId: importAliasBindingId, oldName: 'f', newName: 'format', rationale: 'clarify the formatter package alias' }] })
+      }
+      return baseImplementation(url, init)
+    })
+
+    const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ operation: 'suggest', unitId: 'unit-a', providerId: 'provider-1', sourceCode: selectedSource, crossFileGo: true }),
+    }), routeParams)
+
+    const body = await response.json()
+    expect(response.status, JSON.stringify(body)).toBe(200)
+    expect(body.renames).toEqual([expect.objectContaining({ bindingId: importAliasBindingId, oldName: 'f', newName: 'format', kind: 'file import alias' })])
+  })
+
   it('returns and persists inventory counts for the verified same-directory Go snapshot', async () => {
     const response = await POST(new Request('http://localhost/api/projects/project-1/visualizer/safe-renames', {
       method: 'POST', headers: { 'content-type': 'application/json' },

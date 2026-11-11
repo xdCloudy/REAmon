@@ -539,7 +539,8 @@ async function listGoProjectRenameBindings(files: GoPackageRenameFile[], selecte
         return /^[a-f0-9]{24}$/i.test(String(binding.id || ''))
           && typeof binding.name === 'string' && binding.name.length > 0 && binding.name.length <= 256
           && typeof binding.kind === 'string' && binding.kind.length <= 80
-          && (binding.scopeType === 'package' || (binding.scopeType === 'member' && binding.kind === 'method'))
+          && (binding.scopeType === 'package' || (binding.scopeType === 'member' && binding.kind === 'method')
+            || (binding.scopeType === 'file' && binding.kind === 'file import alias'))
           && binding.relativePath === selectedPath
           && Number.isSafeInteger(binding.declarationStart) && Number(binding.declarationStart) >= 0
           && Number.isSafeInteger(binding.referenceCount) && Number(binding.referenceCount) > 0
