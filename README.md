@@ -128,7 +128,7 @@ Latest evidence-based score change (2026-11-11): **+0.08 points** (34.98% → 35
 
 **Next measurable gate:** Expand held-out explicit-alias accuracy across independent modules and build contexts; measure false and missed references beyond this two-alias Windows slice; add downstream-consumer compatibility checks and coordinated alias batches across module files.
 
-Refreshed from pushed commit `f5ebc09`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
+Refreshed from pushed commit `4cd20d5`. This estimate includes product work and production security/reliability; it is not a release certification. See the [readiness matrix](docs/REAMON_READINESS_MATRIX.md) for release gates and the [progress matrix](docs/REAMON_PROGRESS.md) for workstream evidence.
 
 <!-- REAMON_PRODUCT_PROGRESS_END -->
 
